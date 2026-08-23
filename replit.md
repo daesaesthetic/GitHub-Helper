@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, Phase 3 Context Engine foundation, and Phase 4 Reality Layer foundation.
+This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, Phase 3 Context Engine foundation, Phase 4 Reality Layer foundation, and Phase 5 Project Intelligence foundation.
 
 ## Current architecture
 
 The application is a TypeScript modular monolith:
 
-`Discord interaction → identity extraction → command handler → application use case → ProjectService → ContextService / RealityService / GitHub service → ContextStore / RealityStore / GitHub client → PostgreSQL / GitHub API`
+`Discord interaction → identity extraction → command handler → application use case → ProjectIntelligenceService / ProjectService → ContextService / RealityService / GitHub service → ContextStore / RealityStore / GitHub client → PostgreSQL / GitHub API`
 
 The HTTP layer exposes `/health` for operational diagnostics. The project repository remains in memory; Context Engine and Reality Layer records are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access persistence directly.
 
@@ -52,6 +52,12 @@ The Reality Layer adds:
 `/reality project`
 
 It authorizes the requesting Discord user and returns a concise list of deterministic, project-scoped Reality facts and their verification states. It is the verified-state view; it does not return raw Context records.
+
+The Project Intelligence foundation adds:
+
+`/intelligence project`
+
+It combines authorized Project state, current GitHub status, verified Reality facts, and clearly labeled Context evidence into a deterministic project summary. It is a computed view, not an AI chatbot and not another persistence layer.
 
 ## Context Engine
 
@@ -103,6 +109,34 @@ Current fact types are project identity, project status, and configured GitHub r
 
 `RealityService` is the application-facing boundary. It authorizes project access before establishing, retrieving, updating, invalidating, or removing Reality facts. A supporting Context reference must exist and belong to the same project.
 
+## Project Intelligence
+
+### Computed interpretation
+
+Project Intelligence is a read-only application layer. It retrieves data through `ProjectService`, `RealityService`, and `ContextService`; it does not access Context or Reality tables directly and does not persist derived health results.
+
+The result includes project identity, current state, current GitHub repository status when available, verified Reality facts, limited supporting Context evidence, milestone availability, an explainable health state, and a generation timestamp.
+
+### Precedence and evidence
+
+Verified Reality is the primary source for normalized current project state. If no verified project-status Reality fact exists, structured Project state is used. Context is included only as labeled supporting evidence and never changes project state, health, or Reality data.
+
+### Health
+
+Health is a deterministic state, never a score:
+
+- `active` — an established active/development project state with a connected, non-archived, non-disabled repository
+- `healthy` — an established non-active state with a connected, active repository
+- `attention` — a configured repository is archived/disabled or unavailable because it has not been configured
+- `unknown` — the project state or configured repository availability cannot be established
+- `blocked` — reserved for future authoritative blocked-state signals; Phase 5 does not infer it from Context
+
+Every health response includes the structured state, GitHub availability, verified Reality count, and milestone availability reasons used to produce it.
+
+### Milestones
+
+Phase 5 introduces a typed milestone result boundary only. No authoritative milestone source exists yet, so it returns `unavailable` with an explicit reason rather than inventing current, completed, upcoming, or percentage progress.
+
 The seed project is temporary development data:
 
 - ID: `project-dev-platform`
@@ -134,7 +168,7 @@ This is deliberately not a full production authorization flow. The GitHub client
 5. Optionally set the complete GitHub development configuration described above.
 6. Run `npm run build && npm start`.
 
-The application registers the global `project status`, `context project`, and `reality project` commands at startup and serves `GET /health` on `PORT` (default `3000`).
+The application registers the global `project status`, `context project`, `reality project`, and `intelligence project` commands at startup and serves `GET /health` on `PORT` (default `3000`).
 
 ## Required environment variables
 
@@ -155,11 +189,12 @@ Optional:
 - GitHub API communication is centralized behind the GitHub client and service, with typed API responses and safe normalized failure categories.
 - Context content is not logged. Unauthorized users cannot retrieve project context.
 - Reality values are project-scoped and are not logged. Unauthorized users cannot retrieve or modify project Reality.
+- Intelligence is project-scoped, performs the same authorization before reading source data, and never promotes Context evidence into Reality.
 - No background polling, continuous synchronization, broad Discord ingestion, or cache is used in this phase.
 
 ## Testing and verification
 
-Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Tests never require a live GitHub credential.
+Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Intelligence tests cover deterministic active, attention, and unknown health; explainable reasons; Reality precedence; labeled Context evidence; unavailable milestones; project isolation; and `/intelligence project` authorization and formatting. Tests never require a live GitHub credential.
 
 Run:
 
@@ -169,7 +204,7 @@ npm run typecheck
 npm run build
 ```
 
-Live verification was completed successfully after configuring the Discord and GitHub credentials. Discord command connectivity and registration were verified live, GitHub authentication and repository connection were verified, and the following commands worked:
+Live verification was completed successfully after configuring the Discord and GitHub credentials. Discord command connectivity and registration were verified live, GitHub authentication and repository connection were verified, and the following Phase 1–4 commands worked:
 
 - `/project status`
 - `/context project`
@@ -177,6 +212,8 @@ Live verification was completed successfully after configuring the Discord and G
 
 Repeated `/context project` calls remained idempotent, and `/reality project` returned the expected three verified facts. This records successful live verification for Phase 4; no implementation behavior was changed by the verification.
 
+Phase 5 runtime verification completed successfully: the application registered `/intelligence project`, connected to Discord, passed its health check, and the authorized Intelligence service ran against the configured GitHub repository and development database. It reported `active` health, `Development` state, a connected repository, the three expected verified Reality facts, one Context evidence record, and an unavailable milestone state. The Discord handler itself is covered by automated command tests; no synthetic Discord interaction was sent during runtime verification.
+
 ## Intentionally deferred
 
-Not implemented: GitHub App/OAuth onboarding, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Project Intelligence, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.
+Not implemented: GitHub App/OAuth onboarding, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, authoritative milestone management, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.

@@ -5,6 +5,8 @@ import type { GitHubStatus } from "../github/github-service.js";
 import { ProjectService } from "../projects/project-service.js";
 import type { RealityRecord } from "../reality/reality.js";
 import { RealityService } from "../reality/reality-service.js";
+import { MilestoneService } from "../milestones/milestone-service.js";
+import type { ProjectMilestone } from "../milestones/milestone.js";
 import type {
   IntelligenceEvidence,
   IntelligenceHealthState,
@@ -17,7 +19,8 @@ export class ProjectIntelligenceService {
   constructor(
     private readonly projects: ProjectService,
     private readonly reality: RealityService,
-    private readonly context: ContextService
+    private readonly context: ContextService,
+    private readonly milestones?: MilestoneService
   ) {}
 
   async getProjectIntelligence(
@@ -25,13 +28,14 @@ export class ProjectIntelligenceService {
     identity: RequestIdentity
   ): Promise<ProjectIntelligenceResult> {
     const project = this.projects.getAccessibleProject(projectId, identity);
-    const [github, verifiedFacts, contextRecords] = await Promise.all([
+    const [github, verifiedFacts, contextRecords, milestones] = await Promise.all([
       this.projects.getGitHubStatus(project),
       this.reality.getProjectReality(projectId, identity, { verificationState: "verified" }),
-      this.context.getProjectContext(projectId, identity)
+      this.context.getProjectContext(projectId, identity),
+      this.milestones?.getProjectMilestones(projectId, identity) ?? Promise.resolve([])
     ]);
     const state = getProjectState(project.status, verifiedFacts);
-    const milestone = getMilestoneSummary();
+    const milestone = getMilestoneSummary(milestones);
     return {
       project: {
         id: project.id,
@@ -60,7 +64,19 @@ function getProjectState(
   return { value: "Unknown", source: "unknown" };
 }
 
-function getMilestoneSummary(): MilestoneSummary {
+function getMilestoneSummary(milestones: ProjectMilestone[]): MilestoneSummary {
+  if (milestones.length > 0) {
+    return {
+      status: "established",
+      current: milestones.find((milestone) => milestone.status === "current")?.title,
+      completed: milestones
+        .filter((milestone) => milestone.status === "completed")
+        .map((milestone) => milestone.title),
+      upcoming: milestones
+        .filter((milestone) => milestone.status === "upcoming")
+        .map((milestone) => milestone.title)
+    };
+  }
   return {
     status: "unavailable",
     reason: "No authoritative milestone data has been established."

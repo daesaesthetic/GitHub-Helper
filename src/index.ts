@@ -25,6 +25,7 @@ import {
   intelligenceCommand,
   handleIntelligenceCommand
 } from "./discord/intelligence-command.js";
+import { InMemoryMilestoneStore, MilestoneService } from "./milestones/milestone-service.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -63,7 +64,12 @@ const getProjectReality = new GetProjectReality(
   reality,
   new ProjectRealityBootstrap(reality)
 );
-const intelligence = new ProjectIntelligenceService(projects, reality, context);
+const intelligence = new ProjectIntelligenceService(
+  projects,
+  reality,
+  context,
+  new MilestoneService(new InMemoryMilestoneStore(), projects)
+);
 const getProjectIntelligence = new GetProjectIntelligence(intelligence);
 const healthServer = startHealthServer(config.port, logger);
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });

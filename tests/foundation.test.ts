@@ -33,6 +33,10 @@ import { RealityService } from "../src/reality/reality-service.js";
 import { ProjectRealityBootstrap } from "../src/reality/reality-bootstrap.js";
 import { GetProjectReality } from "../src/use-cases/project-reality.js";
 import { handleRealityCommand } from "../src/discord/reality-command.js";
+import { ProjectIntelligenceService } from "../src/intelligence/project-intelligence-service.js";
+import { GetProjectIntelligence } from "../src/use-cases/project-intelligence.js";
+import { handleIntelligenceCommand } from "../src/discord/intelligence-command.js";
+import { InMemoryMilestoneStore, MilestoneService } from "../src/milestones/milestone-service.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
@@ -571,6 +575,209 @@ test("/reality project rejects unauthorized users safely", async () => {
   });
 });
 
+test("project intelligence computes an active explainable state from verified Reality and GitHub", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world" };
+  project.integrationReferences = ["github"];
+  const github = createGitHubService({ archived: false, disabled: false });
+  const projects = new ProjectService(new InMemoryProjectRepository(project), github);
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+  await reality.establishFact({
+    id: "intelligence-status",
+    projectId: project.id,
+    factType: "project_status",
+    value: { status: "Development" },
+    verificationState: "verified"
+  }, { userId: ownerId });
+  await context.storeProjectContext({
+    id: "intelligence-evidence",
+    projectId: project.id,
+    scope: "project",
+    sourceType: "github_repository",
+    sourceIdentity: "github:repository:1296269",
+    content: "Repository metadata source",
+    provenance: { sourceUrl: "https://github.com/octocat/hello-world" }
+  });
+  const result = await new ProjectIntelligenceService(projects, reality, context)
+    .getProjectIntelligence(project.id, { userId: ownerId });
+  assert.equal(result.state.value, "Development");
+  assert.equal(result.state.source, "reality");
+  assert.equal(result.health.state, "active");
+  assert.match(result.health.reasons.map((reason) => reason.message).join("\n"), /GitHub repository is connected/);
+  assert.equal(result.verifiedFacts.length, 1);
+  assert.deepEqual(result.supportingEvidence, [{
+    sourceType: "github_repository",
+    sourceIdentity: "github:repository:1296269",
+    reference: "https://github.com/octocat/hello-world"
+  }]);
+  assert.deepEqual(result.milestone, {
+    status: "unavailable",
+    reason: "No authoritative milestone data has been established."
+  });
+});
+
+test("project intelligence reports attention when a connected repository is archived", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world" };
+  project.integrationReferences = ["github"];
+  const projects = new ProjectService(
+    new InMemoryProjectRepository(project),
+    createGitHubService({ archived: true, disabled: false })
+  );
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+  const result = await new ProjectIntelligenceService(projects, reality, context)
+    .getProjectIntelligence(project.id, { userId: ownerId });
+  assert.equal(result.health.state, "attention");
+  assert.match(result.health.reasons.map((reason) => reason.message).join("\n"), /Archived/);
+});
+
+test("project intelligence uses unknown when authoritative project state is unavailable", async () => {
+  const project = createSeedProject(ownerId);
+  project.status = "";
+  const projects = new ProjectService(new InMemoryProjectRepository(project));
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+  const result = await new ProjectIntelligenceService(projects, reality, context)
+    .getProjectIntelligence(project.id, { userId: ownerId });
+  assert.equal(result.state.value, "Unknown");
+  assert.equal(result.health.state, "unknown");
+  assert.match(result.health.reasons[0]?.message ?? "", /not established/);
+});
+
+test("project intelligence represents established milestone data without deriving progress", async () => {
+  const project = createSeedProject(ownerId);
+  const projects = new ProjectService(new InMemoryProjectRepository(project));
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+  const milestones = new MilestoneService(new InMemoryMilestoneStore([
+    {
+      id: "milestone-current",
+      projectId: project.id,
+      title: "Project Intelligence Foundation",
+      status: "current"
+    },
+    {
+      id: "milestone-completed",
+      projectId: project.id,
+      title: "Reality Layer Foundation",
+      status: "completed"
+    },
+    {
+      id: "milestone-upcoming",
+      projectId: project.id,
+      title: "Milestone Management",
+      status: "upcoming"
+    }
+  ]), projects);
+  const result = await new ProjectIntelligenceService(projects, reality, context, milestones)
+    .getProjectIntelligence(project.id, { userId: ownerId });
+  assert.deepEqual(result.milestone, {
+    status: "established",
+    current: "Project Intelligence Foundation",
+    completed: ["Reality Layer Foundation"],
+    upcoming: ["Milestone Management"]
+  });
+  assert.equal("percentage" in result.milestone, false);
+});
+
+test("project intelligence keeps Context as labeled evidence and gives verified Reality precedence", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world" };
+  project.integrationReferences = ["github"];
+  const projects = new ProjectService(
+    new InMemoryProjectRepository(project),
+    createGitHubService({ archived: false, disabled: false })
+  );
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+  await reality.establishFact({
+    id: "intelligence-reality-state",
+    projectId: project.id,
+    factType: "project_status",
+    value: { status: "Development" },
+    verificationState: "verified"
+  }, { userId: ownerId });
+  await context.storeProjectContext({
+    id: "intelligence-conflicting-context",
+    projectId: project.id,
+    scope: "project",
+    sourceType: "user_authored",
+    sourceIdentity: "user:note:1",
+    content: "Project is blocked",
+    provenance: { sourceReference: "unverified-note" }
+  });
+  const result = await new ProjectIntelligenceService(projects, reality, context)
+    .getProjectIntelligence(project.id, { userId: ownerId });
+  assert.equal(result.state.value, "Development");
+  assert.equal(result.health.state, "active");
+  assert.equal(result.supportingEvidence[0]?.reference, "unverified-note");
+  assert.doesNotMatch(result.health.reasons.map((reason) => reason.message).join("\n"), /blocked/i);
+});
+
+test("project intelligence enforces project isolation", async () => {
+  const projectA = createSeedProject(ownerId);
+  const projectB = { ...createSeedProject("owner-456"), id: "intelligence-project-b" };
+  const projects = new ProjectService({
+    findById: (id) => id === projectA.id ? projectA : id === projectB.id ? projectB : undefined
+  });
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+  const intelligence = new ProjectIntelligenceService(projects, reality, context);
+  await assert.rejects(
+    () => intelligence.getProjectIntelligence(projectB.id, { userId: ownerId }),
+    ProjectAccessDeniedError
+  );
+});
+
+test("/intelligence project returns a concise deterministic summary", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world" };
+  project.integrationReferences = ["github"];
+  const projects = new ProjectService(
+    new InMemoryProjectRepository(project),
+    createGitHubService({ archived: false, disabled: false })
+  );
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+  const useCase = new GetProjectIntelligence(new ProjectIntelligenceService(projects, reality, context));
+  let response = "";
+  const interaction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: string) => { response = value; }
+  } as never;
+  await handleIntelligenceCommand(interaction, useCase, createLogger());
+  assert.match(response, /Health: active/);
+  assert.match(response, /\*\*Health reasons\*\*/);
+  assert.match(response, /\*\*Milestones\*\*/);
+  assert.match(response, /\*\*Supporting Context evidence\*\*/);
+});
+
+test("/intelligence project rejects unauthorized users safely", async () => {
+  const context = new ContextService(new InMemoryContextStore(), projectService);
+  const reality = new RealityService(new InMemoryRealityStore(), projectService, context);
+  const useCase = new GetProjectIntelligence(
+    new ProjectIntelligenceService(projectService, reality, context)
+  );
+  let response: unknown;
+  const interaction = {
+    user: { id: "other-user", username: "other", globalName: "Other" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleIntelligenceCommand(interaction, useCase, createLogger());
+  assert.deepEqual(response, {
+    content: "You are not authorized to view this project intelligence.",
+    ephemeral: true
+  });
+});
+
 test("health endpoint responds successfully", async () => {
   const server = startHealthServer(0, createLogger());
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -600,4 +807,24 @@ function repositoryResponse(): Response {
     disabled: false,
     updated_at: "2026-08-23T00:00:00Z"
   });
+}
+
+function createGitHubService(
+  repositoryState: Pick<{ archived: boolean; disabled: boolean }, "archived" | "disabled">
+): GitHubService {
+  return new GitHubService(new GitHubClient("test-token", (async (input) => {
+    if (String(input).endsWith("/user")) {
+      return jsonResponse({ login: "octocat", id: 1, html_url: "https://github.com/octocat" });
+    }
+    return jsonResponse({
+      id: 1296269,
+      full_name: "octocat/hello-world",
+      private: true,
+      default_branch: "main",
+      html_url: "https://github.com/octocat/hello-world",
+      archived: repositoryState.archived,
+      disabled: repositoryState.disabled,
+      updated_at: "2026-08-23T00:00:00Z"
+    });
+  }) as typeof fetch));
 }
