@@ -169,7 +169,13 @@ npm run typecheck
 npm run build
 ```
 
-Live GitHub, Context Engine, and Reality Layer verification is **not verified** until valid GitHub development configuration is supplied through Replit Secrets. When configured, verify `/project status`, `/context project`, `/reality project`, and `GET /health`.
+Live verification was completed successfully after configuring the Discord and GitHub credentials. Discord command connectivity and registration were verified live, GitHub authentication and repository connection were verified, and the following commands worked:
+
+- `/project status`
+- `/context project`
+- `/reality project`
+
+Repeated `/context project` calls remained idempotent, and `/reality project` returned the expected three verified facts. This records successful live verification for Phase 4; no implementation behavior was changed by the verification.
 
 ## Intentionally deferred
 
