@@ -1,6 +1,7 @@
 import type { RequestIdentity } from "../identity.js";
 import type { Project } from "./project.js";
 import type { GitHubService } from "../github/github-service.js";
+import type { GitHubStatus } from "../github/github-service.js";
 
 export class ProjectNotFoundError extends Error {}
 export class ProjectAccessDeniedError extends Error {}
@@ -40,7 +41,10 @@ export class ProjectService {
     return this.getAccessibleProject(id, identity);
   }
 
-  getGitHubService(): GitHubService | undefined {
-    return this.github;
+  async getGitHubStatus(project: Project): Promise<GitHubStatus> {
+    if (!project.integrations.github || !this.github) {
+      return { connected: false, reason: "not_configured" };
+    }
+    return this.github.getRepositoryStatus(project.integrations.github);
   }
 }

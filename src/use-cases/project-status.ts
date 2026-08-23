@@ -16,12 +16,7 @@ export class GetProjectStatus {
 
   async execute(projectId: string, identity: RequestIdentity): Promise<ProjectStatusResult> {
     const project = this.projects.getStatus(projectId, identity);
-    let github: GitHubStatus | undefined;
-    if (project.integrations.github && this.projects.getGitHubService()) {
-      github = await this.projects.getGitHubService()!.getRepositoryStatus(project.integrations.github);
-    } else if (!project.integrations.github) {
-      github = { connected: false, reason: "not_configured" };
-    }
+    const github: GitHubStatus = await this.projects.getGitHubStatus(project);
     return {
       name: project.name,
       status: project.status,
