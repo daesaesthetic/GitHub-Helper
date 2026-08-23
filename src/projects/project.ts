@@ -6,6 +6,15 @@ export interface Project {
   status: string;
   metadata: Record<string, string>;
   integrationReferences: string[];
+  integrations: {
+    github?: GitHubProjectReference;
+  };
+}
+
+export interface GitHubProjectReference {
+  owner: string;
+  repository: string;
+  repositoryId?: string;
 }
 
 export const DEVELOPMENT_PROJECT_ID = "project-dev-platform";
@@ -18,6 +27,7 @@ export function createSeedProject(ownerId: string): Project {
     description: "Personal developer intelligence and project operations platform.",
     status: "Development",
     metadata: { source: "temporary-development-seed" },
-    integrationReferences: []
+    integrationReferences: [],
+    integrations: {}
   };
 }

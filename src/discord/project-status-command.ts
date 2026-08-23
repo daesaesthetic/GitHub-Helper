@@ -32,14 +32,14 @@ export async function handleProjectCommand(
   const identity = extractIdentity(interaction);
   const projectId = interaction.options.getString("project", true);
   try {
-    const result = getProjectStatus.execute(projectId, identity);
+    const result = await getProjectStatus.execute(projectId, identity);
     logger.info("command.completed", { command: "project.status", userId: identity.userId, projectId });
     await interaction.reply([
       `**${result.name}**`,
       `Status: ${result.status}`,
       result.description,
       `Owner: <@${result.ownerId}>`,
-      `GitHub: ${result.integrations.includes("github") ? "Connected" : "Not connected"}`
+      formatGitHub(result)
     ].join("\n"));
   } catch (error) {
     const message = error instanceof ProjectAccessDeniedError
@@ -55,4 +55,19 @@ export async function handleProjectCommand(
     });
     await interaction.reply({ content: message, ephemeral: true });
   }
+}
+
+function formatGitHub(result: Awaited<ReturnType<GetProjectStatus["execute"]>>): string {
+  if (!result.github || !result.github.connected) {
+    return `GitHub: ${result.github?.reason === "not_configured" ? "Not connected" : "Unavailable"}`;
+  }
+  const repository = result.github.repository;
+  return [
+    "GitHub: Connected",
+    `Repository: ${repository.fullName}`,
+    `Visibility: ${repository.private ? "Private" : "Public"}`,
+    `Default Branch: ${repository.defaultBranch}`,
+    `Repository URL: ${repository.htmlUrl}`,
+    `Repository Status: ${repository.archived ? "Archived" : repository.disabled ? "Disabled" : "Active"}`
+  ].join("\n");
 }

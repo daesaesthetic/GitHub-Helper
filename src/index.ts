@@ -6,6 +6,8 @@ import { createSeedProject } from "./projects/project.js";
 import { InMemoryProjectRepository, ProjectService } from "./projects/project-service.js";
 import { GetProjectStatus } from "./use-cases/project-status.js";
 import { handleProjectCommand, projectStatusCommand } from "./discord/project-status-command.js";
+import { GitHubClient } from "./github/github-client.js";
+import { GitHubService } from "./github/github-service.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -19,7 +21,17 @@ try {
 }
 
 const ownerId = config.authorizedUserId ?? "development-owner";
-const projects = new ProjectService(new InMemoryProjectRepository(createSeedProject(ownerId)));
+const seedProject = createSeedProject(ownerId);
+if (config.github) {
+  seedProject.integrations.github = {
+    owner: config.github.owner,
+    repository: config.github.repository,
+    repositoryId: config.github.repositoryId
+  };
+  seedProject.integrationReferences = ["github"];
+}
+const github = config.github ? new GitHubService(new GitHubClient(config.github.token)) : undefined;
+const projects = new ProjectService(new InMemoryProjectRepository(seedProject), github);
 const getProjectStatus = new GetProjectStatus(projects);
 const healthServer = startHealthServer(config.port, logger);
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });

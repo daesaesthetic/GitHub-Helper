@@ -1,5 +1,6 @@
 import type { RequestIdentity } from "../identity.js";
 import type { Project } from "./project.js";
+import type { GitHubService } from "../github/github-service.js";
 
 export class ProjectNotFoundError extends Error {}
 export class ProjectAccessDeniedError extends Error {}
@@ -16,7 +17,10 @@ export class InMemoryProjectRepository implements ProjectRepository {
 }
 
 export class ProjectService {
-  constructor(private readonly repository: ProjectRepository) {}
+  constructor(
+    private readonly repository: ProjectRepository,
+    private readonly github?: GitHubService
+  ) {}
 
   getProjectById(id: string): Project {
     const project = this.repository.findById(id);
@@ -34,5 +38,9 @@ export class ProjectService {
 
   getStatus(id: string, identity: RequestIdentity): Project {
     return this.getAccessibleProject(id, identity);
+  }
+
+  getGitHubService(): GitHubService | undefined {
+    return this.github;
   }
 }
