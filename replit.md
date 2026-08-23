@@ -2,15 +2,15 @@
 
 ## Purpose
 
-This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, and Phase 3 Context Engine foundation.
+This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, Phase 3 Context Engine foundation, and Phase 4 Reality Layer foundation.
 
 ## Current architecture
 
 The application is a TypeScript modular monolith:
 
-`Discord interaction → identity extraction → command handler → application use case → ProjectService → ContextService / GitHub service → ContextStore / GitHub client → PostgreSQL / GitHub API`
+`Discord interaction → identity extraction → command handler → application use case → ProjectService → ContextService / RealityService / GitHub service → ContextStore / RealityStore / GitHub client → PostgreSQL / GitHub API`
 
-The HTTP layer exposes `/health` for operational diagnostics. The project repository remains in memory; Context Engine records are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access context storage directly.
+The HTTP layer exposes `/health` for operational diagnostics. The project repository remains in memory; Context Engine and Reality Layer records are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access persistence directly.
 
 ## Technology stack
 
@@ -47,6 +47,12 @@ The Context Engine adds:
 
 It authorizes the requesting Discord user, ingests the configured repository's limited source context when available, and reports the project-scoped context record count, source types, and basic source/provenance information. It is a retrieval and verification interface, not an AI chat command.
 
+The Reality Layer adds:
+
+`/reality project`
+
+It authorizes the requesting Discord user and returns a concise list of deterministic, project-scoped Reality facts and their verification states. It is the verified-state view; it does not return raw Context records.
+
 ## Context Engine
 
 ### Context model and provenance
@@ -70,6 +76,32 @@ The model supports user, project, repository, Discord guild, Discord channel, an
 `GitHubContextIngestionService` converts actual GitHub repository metadata and an available README into project-scoped records. It uses stable repository/readme source identities and upserts them, so repeated ingestion does not create duplicate records. A changed source updates the same stable context record; this phase does not maintain a full historical version system.
 
 The ingestion path does not ingest the whole repository, recursively inspect files, or process likely secret-bearing paths such as `.env`, credentials, keys, or PEM files.
+
+## Reality Layer
+
+### Reality versus Context
+
+Context is the source/evidence layer: it answers “What information has been collected?” Reality is the distinct normalized project-state layer: it answers “What do we currently believe is true about this project?”
+
+Reality is never created by copying all Context records. README content is never automatically promoted. A Reality fact may optionally reference a supporting Context record, but it is only established through an explicit deterministic operation.
+
+### Model and verification
+
+Reality records have a stable ID, project ID, bounded fact type, structured value, verification state, optional supporting Context record ID, and timestamps.
+
+Current fact types are project identity, project status, and configured GitHub repository association. Current verification states are:
+
+- `verified` — deterministically established from project configuration/state
+- `pending` — recorded but not yet verified
+- `invalidated` — no longer considered current
+
+`ProjectRealityBootstrap` establishes only conservative facts that already exist in the authoritative project model. It does not infer functionality from documentation or source context.
+
+### Persistence and access
+
+`reality_records` is the Reality Layer table. Its schema source is `src/reality/schema.sql`; it stores project-scoped facts, structured values, verification state, optional supporting context, and timestamps. The schema was applied to the development database. Application startup does not run database DDL.
+
+`RealityService` is the application-facing boundary. It authorizes project access before establishing, retrieving, updating, invalidating, or removing Reality facts. A supporting Context reference must exist and belong to the same project.
 
 The seed project is temporary development data:
 
@@ -102,7 +134,7 @@ This is deliberately not a full production authorization flow. The GitHub client
 5. Optionally set the complete GitHub development configuration described above.
 6. Run `npm run build && npm start`.
 
-The application registers the global `project status` command at startup and serves `GET /health` on `PORT` (default `3000`).
+The application registers the global `project status`, `context project`, and `reality project` commands at startup and serves `GET /health` on `PORT` (default `3000`).
 
 ## Required environment variables
 
@@ -122,11 +154,12 @@ Optional:
 - Project authorization occurs before any GitHub request. The development integration is limited to the configured project owner.
 - GitHub API communication is centralized behind the GitHub client and service, with typed API responses and safe normalized failure categories.
 - Context content is not logged. Unauthorized users cannot retrieve project context.
+- Reality values are project-scoped and are not logged. Unauthorized users cannot retrieve or modify project Reality.
 - No background polling, continuous synchronization, broad Discord ingestion, or cache is used in this phase.
 
 ## Testing and verification
 
-Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Tests never require a live GitHub credential.
+Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Tests never require a live GitHub credential.
 
 Run:
 
@@ -136,8 +169,8 @@ npm run typecheck
 npm run build
 ```
 
-Live GitHub and Context Engine verification is **not verified** until valid GitHub development configuration is supplied through Replit Secrets. When configured, verify `/project status`, `/context project`, and `GET /health`.
+Live GitHub, Context Engine, and Reality Layer verification is **not verified** until valid GitHub development configuration is supplied through Replit Secrets. When configured, verify `/project status`, `/context project`, `/reality project`, and `GET /health`.
 
 ## Intentionally deferred
 
-Not implemented: GitHub App/OAuth onboarding, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Reality Layer, Project Intelligence, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.
+Not implemented: GitHub App/OAuth onboarding, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Project Intelligence, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.

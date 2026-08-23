@@ -24,6 +24,15 @@ import { ContextService } from "../src/context/context-service.js";
 import { GitHubContextIngestionService } from "../src/context/github-context-ingestion-service.js";
 import { GetProjectContext } from "../src/use-cases/project-context.js";
 import { handleContextCommand } from "../src/discord/context-command.js";
+import {
+  RealityValidationError,
+  createRealityRecord
+} from "../src/reality/reality.js";
+import { InMemoryRealityStore } from "../src/reality/reality-store.js";
+import { RealityService } from "../src/reality/reality-service.js";
+import { ProjectRealityBootstrap } from "../src/reality/reality-bootstrap.js";
+import { GetProjectReality } from "../src/use-cases/project-reality.js";
+import { handleRealityCommand } from "../src/discord/reality-command.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
@@ -411,6 +420,153 @@ test("/context project rejects unauthorized users safely", async () => {
   await handleContextCommand(interaction, getProjectContext, createLogger());
   assert.deepEqual(response, {
     content: "You are not authorized to view this project context.",
+    ephemeral: true
+  });
+});
+
+test("reality records validate fact and verification states", () => {
+  const record = createRealityRecord({
+    id: "reality-1",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    factType: "project_identity",
+    value: { name: "Developer Intelligence Platform" },
+    verificationState: "verified"
+  });
+  assert.equal(record.verificationState, "verified");
+  assert.throws(
+    () => createRealityRecord({
+      ...record,
+      id: "reality-invalid",
+      factType: "unknown" as never
+    }),
+    RealityValidationError
+  );
+});
+
+test("reality service stores, updates, filters, and invalidates project facts", async () => {
+  const reality = new RealityService(new InMemoryRealityStore(), projectService);
+  const input = {
+    id: "reality-status",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    factType: "project_status" as const,
+    value: { status: "Development" },
+    verificationState: "verified" as const
+  };
+  await reality.establishFact(input, { userId: ownerId });
+  assert.equal(
+    (await reality.getProjectReality(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).length,
+    1
+  );
+  await reality.updateFact({
+    ...input,
+    value: { status: "Paused" },
+    verificationState: "pending"
+  }, { userId: ownerId });
+  assert.equal(
+    (await reality.getProjectReality(
+      DEVELOPMENT_PROJECT_ID,
+      { userId: ownerId },
+      { verificationState: "pending" }
+    ))[0]?.value.status,
+    "Paused"
+  );
+  const invalidated = await reality.invalidateFact("reality-status", { userId: ownerId });
+  assert.equal(invalidated?.verificationState, "invalidated");
+});
+
+test("reality facts can reference same-project context but never promote it automatically", async () => {
+  const context = new ContextService(new InMemoryContextStore(), projectService);
+  await context.storeProjectContext({
+    id: "context-evidence",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    scope: "project",
+    sourceType: "github_repository",
+    sourceIdentity: "github:repository:1",
+    content: "Repository metadata",
+    provenance: { repositoryName: "hello-world" }
+  });
+  const reality = new RealityService(new InMemoryRealityStore(), projectService, context);
+  const fact = await reality.establishFact({
+    id: "reality-repository",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    factType: "github_repository",
+    value: { repository: "hello-world" },
+    verificationState: "verified",
+    supportingContextId: "context-evidence"
+  }, { userId: ownerId });
+  assert.equal(fact.supportingContextId, "context-evidence");
+  assert.equal(
+    (await reality.getProjectReality(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).length,
+    1
+  );
+  await assert.rejects(
+    () => reality.establishFact({
+      ...fact,
+      id: "reality-invalid-evidence",
+      supportingContextId: "missing-context"
+    }, { userId: ownerId })
+  );
+});
+
+test("reality access keeps projects isolated", async () => {
+  const projectA = createSeedProject(ownerId);
+  const projectB = { ...createSeedProject("owner-456"), id: "project-b" };
+  const projects = new ProjectService({
+    findById: (id) => id === projectA.id ? projectA : id === projectB.id ? projectB : undefined
+  });
+  const reality = new RealityService(new InMemoryRealityStore(), projects);
+  await reality.establishFact({
+    id: "reality-project-b",
+    projectId: projectB.id,
+    factType: "project_status",
+    value: { status: "Development" },
+    verificationState: "verified"
+  }, { userId: "owner-456" });
+  await assert.rejects(
+    () => reality.getProjectReality(projectB.id, { userId: ownerId }),
+    ProjectAccessDeniedError
+  );
+});
+
+test("/reality project returns verified deterministic project facts", async () => {
+  const reality = new RealityService(new InMemoryRealityStore(), projectService);
+  const getProjectReality = new GetProjectReality(
+    projectService,
+    reality,
+    new ProjectRealityBootstrap(reality)
+  );
+  let response = "";
+  const interaction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: string) => { response = value; }
+  } as never;
+  await handleRealityCommand(interaction, getProjectReality, createLogger());
+  assert.match(response, /Verified reality facts: 2/);
+  assert.match(response, /project_identity \[verified\]/);
+  assert.match(response, /project_status \[verified\]/);
+});
+
+test("/reality project rejects unauthorized users safely", async () => {
+  const reality = new RealityService(new InMemoryRealityStore(), projectService);
+  const getProjectReality = new GetProjectReality(
+    projectService,
+    reality,
+    new ProjectRealityBootstrap(reality)
+  );
+  let response: unknown;
+  const interaction = {
+    user: { id: "other-user", username: "other", globalName: "Other" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleRealityCommand(interaction, getProjectReality, createLogger());
+  assert.deepEqual(response, {
+    content: "You are not authorized to view this project reality.",
     ephemeral: true
   });
 });
