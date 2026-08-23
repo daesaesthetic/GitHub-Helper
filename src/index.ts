@@ -14,6 +14,11 @@ import { ContextService } from "./context/context-service.js";
 import { GitHubContextIngestionService } from "./context/github-context-ingestion-service.js";
 import { GetProjectContext } from "./use-cases/project-context.js";
 import { contextCommand, handleContextCommand } from "./discord/context-command.js";
+import { PostgresRealityStore } from "./reality/reality-store.js";
+import { RealityService } from "./reality/reality-service.js";
+import { ProjectRealityBootstrap } from "./reality/reality-bootstrap.js";
+import { GetProjectReality } from "./use-cases/project-reality.js";
+import { realityCommand, handleRealityCommand } from "./discord/reality-command.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -46,6 +51,12 @@ const getProjectContext = new GetProjectContext(
   context,
   new GitHubContextIngestionService(projects, context)
 );
+const reality = new RealityService(new PostgresRealityStore(database), projects, context);
+const getProjectReality = new GetProjectReality(
+  projects,
+  reality,
+  new ProjectRealityBootstrap(reality)
+);
 const healthServer = startHealthServer(config.port, logger);
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -54,12 +65,14 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand() || !["project", "context"].includes(interaction.commandName)) return;
+  if (!interaction.isChatInputCommand() || !["project", "context", "reality"].includes(interaction.commandName)) return;
   try {
     if (interaction.commandName === "project") {
       await handleProjectCommand(interaction, getProjectStatus, logger);
-    } else {
+    } else if (interaction.commandName === "context") {
       await handleContextCommand(interaction, getProjectContext, logger);
+    } else {
+      await handleRealityCommand(interaction, getProjectReality, logger);
     }
   } catch (error) {
     logger.error("interaction.unhandled", {
@@ -75,9 +88,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 async function registerCommands(): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(config.discordToken);
   await rest.put(Routes.applicationCommands(config.discordClientId), {
-    body: [projectStatusCommand.toJSON(), contextCommand.toJSON()]
+    body: [projectStatusCommand.toJSON(), contextCommand.toJSON(), realityCommand.toJSON()]
   });
-  logger.info("discord.commands_registered", { commands: ["project status", "context project"] });
+  logger.info("discord.commands_registered", {
+    commands: ["project status", "context project", "reality project"]
+  });
 }
 
 async function start(): Promise<void> {
