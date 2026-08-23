@@ -12,10 +12,12 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "discord.js": "^14.22.1"
+    "discord.js": "^14.22.1",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   }

@@ -1,5 +1,11 @@
 import type { GitHubProjectReference } from "../projects/project.js";
-import { GitHubApiError, GitHubClient, type GitHubRepository, type GitHubUser } from "./github-client.js";
+import {
+  GitHubApiError,
+  GitHubClient,
+  type GitHubReadme,
+  type GitHubRepository,
+  type GitHubUser
+} from "./github-client.js";
 
 export interface GitHubRepositoryStatus {
   connected: true;
@@ -13,6 +19,14 @@ export interface GitHubUnavailable {
 }
 
 export type GitHubStatus = GitHubRepositoryStatus | GitHubUnavailable;
+
+export interface GitHubRepositoryContext {
+  connected: true;
+  repository: GitHubRepository;
+  readme?: GitHubReadme;
+}
+
+export type GitHubRepositoryContextStatus = GitHubRepositoryContext | GitHubUnavailable;
 
 export class GitHubService {
   constructor(private readonly client: GitHubClient) {}
@@ -28,6 +42,27 @@ export class GitHubService {
         this.client.getRepository(reference.owner, reference.repository)
       ]);
       return { connected: true, account, repository };
+    } catch (error) {
+      const reason = error instanceof GitHubApiError ? error.kind : "unavailable";
+      return {
+        connected: false,
+        reason: reason === "invalid_response" ? "unavailable" : reason
+      };
+    }
+  }
+
+  async getRepositoryContext(
+    reference: GitHubProjectReference
+  ): Promise<GitHubRepositoryContextStatus> {
+    try {
+      const repository = await this.client.getRepository(reference.owner, reference.repository);
+      let readme: GitHubReadme | undefined;
+      try {
+        readme = await this.client.getReadme(reference.owner, reference.repository);
+      } catch (error) {
+        if (!(error instanceof GitHubApiError) || error.kind !== "not_found") throw error;
+      }
+      return { connected: true, repository, readme };
     } catch (error) {
       const reason = error instanceof GitHubApiError ? error.kind : "unavailable";
       return {

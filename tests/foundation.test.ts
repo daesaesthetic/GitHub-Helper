@@ -14,6 +14,16 @@ import { createLogger } from "../src/logging.js";
 import { startHealthServer } from "../src/health.js";
 import { GitHubClient } from "../src/github/github-client.js";
 import { GitHubService } from "../src/github/github-service.js";
+import {
+  ContextValidationError,
+  createContextRecord,
+  isSecretBearingPath
+} from "../src/context/context.js";
+import { InMemoryContextStore } from "../src/context/context-store.js";
+import { ContextService } from "../src/context/context-service.js";
+import { GitHubContextIngestionService } from "../src/context/github-context-ingestion-service.js";
+import { GetProjectContext } from "../src/use-cases/project-context.js";
+import { handleContextCommand } from "../src/discord/context-command.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
@@ -109,7 +119,8 @@ test("GitHub client maps successful user and repository responses", async () => 
       default_branch: "main",
       html_url: "https://github.com/octocat/hello-world",
       archived: false,
-      disabled: false
+      disabled: false,
+      updated_at: "2026-08-23T00:00:00Z"
     });
   }) as typeof fetch);
   assert.deepEqual(await client.getAuthenticatedUser(), {
@@ -124,7 +135,8 @@ test("GitHub client maps successful user and repository responses", async () => 
     defaultBranch: "main",
     htmlUrl: "https://github.com/octocat/hello-world",
     archived: false,
-    disabled: false
+    disabled: false,
+    updatedAt: "2026-08-23T00:00:00Z"
   });
 });
 
@@ -164,7 +176,8 @@ test("GitHub-backed project status returns repository metadata", async () => {
       default_branch: "main",
       html_url: "https://github.com/octocat/hello-world",
       archived: false,
-      disabled: false
+      disabled: false,
+      updated_at: "2026-08-23T00:00:00Z"
     });
   }) as typeof fetch));
   const status = await new GetProjectStatus(
@@ -203,7 +216,8 @@ test("/project status displays connected GitHub repository safely", async () => 
       default_branch: "main",
       html_url: "https://github.com/octocat/hello-world",
       archived: false,
-      disabled: false
+      disabled: false,
+      updated_at: "2026-08-23T00:00:00Z"
     });
   }) as typeof fetch));
   let response = "";
@@ -226,6 +240,181 @@ test("/project status displays connected GitHub repository safely", async () => 
   assert.match(response, /Repository URL: https:\/\/github.com\/octocat\/hello-world/);
 });
 
+test("context records validate bounded scope and source types", () => {
+  const record = createContextRecord({
+    id: "context-1",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    scope: "project",
+    sourceType: "user_authored",
+    sourceIdentity: "manual:1",
+    content: "Verified context",
+    provenance: {}
+  });
+  assert.equal(record.scope, "project");
+  assert.throws(
+    () => createContextRecord({
+      ...record,
+      id: "invalid-context",
+      scope: "global" as never
+    }),
+    ContextValidationError
+  );
+  assert.equal(isSecretBearingPath(".env.production"), true);
+  assert.equal(isSecretBearingPath("docs/README.md"), false);
+});
+
+test("context store filters records and supports deletion", async () => {
+  const store = new InMemoryContextStore();
+  const base = {
+    projectId: DEVELOPMENT_PROJECT_ID,
+    scope: "project" as const,
+    content: "Context content",
+    provenance: {}
+  };
+  await store.upsert(createContextRecord({
+    ...base,
+    id: "context-repository",
+    sourceType: "github_repository",
+    sourceIdentity: "repository:1"
+  }));
+  await store.upsert(createContextRecord({
+    ...base,
+    id: "context-documentation",
+    sourceType: "github_documentation",
+    sourceIdentity: "readme:1"
+  }));
+  assert.equal((await store.list({ projectId: DEVELOPMENT_PROJECT_ID })).length, 2);
+  assert.equal((await store.list({ sourceType: "github_documentation" })).length, 1);
+  assert.equal((await store.list({ sourceIdentity: "repository:1" })).length, 1);
+  assert.equal(await store.delete("context-documentation"), true);
+  assert.equal((await store.list({ projectId: DEVELOPMENT_PROJECT_ID })).length, 1);
+});
+
+test("context retrieval enforces project authorization", async () => {
+  const store = new InMemoryContextStore();
+  const service = new ContextService(store, projectService);
+  await service.storeProjectContext({
+    id: "protected-context",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    scope: "project",
+    sourceType: "user_authored",
+    sourceIdentity: "protected:1",
+    content: "Private project context",
+    provenance: {}
+  });
+  assert.equal((await service.getProjectContext(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).length, 1);
+  await assert.rejects(
+    () => service.getProjectContext(DEVELOPMENT_PROJECT_ID, { userId: "other-user" }),
+    ProjectAccessDeniedError
+  );
+});
+
+test("GitHub ingestion stores repository and README context with provenance idempotently", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world", repositoryId: "1296269" };
+  const github = new GitHubService(new GitHubClient("test-token", (async (input) => {
+    const url = String(input);
+    if (url.endsWith("/readme")) {
+      return jsonResponse({
+        path: "README.md",
+        sha: "readme-sha",
+        html_url: "https://github.com/octocat/hello-world/blob/main/README.md",
+        encoding: "base64",
+        content: Buffer.from("# Hello World").toString("base64")
+      });
+    }
+    return repositoryResponse();
+  }) as typeof fetch));
+  const projects = new ProjectService(new InMemoryProjectRepository(project), github);
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const ingestion = new GitHubContextIngestionService(projects, context);
+  assert.equal((await ingestion.ingestProject(project)).ingested, 2);
+  assert.equal((await ingestion.ingestProject(project)).ingested, 2);
+  const records = await context.getProjectContext(DEVELOPMENT_PROJECT_ID, { userId: ownerId });
+  assert.equal(records.length, 2);
+  const readme = records.find((record) => record.sourceType === "github_documentation");
+  assert.equal(readme?.content, "# Hello World");
+  assert.deepEqual(readme?.provenance, {
+    repositoryOwner: "octocat",
+    repositoryName: "hello-world",
+    repositoryId: "1296269",
+    filePath: "README.md",
+    sourceUrl: "https://github.com/octocat/hello-world/blob/main/README.md",
+    sourceReference: "readme-sha"
+  });
+});
+
+test("GitHub ingestion handles failures without storing fabricated context", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world" };
+  const github = new GitHubService(
+    new GitHubClient("test-token", (async () => new Response("", { status: 503 })) as typeof fetch)
+  );
+  const projects = new ProjectService(new InMemoryProjectRepository(project), github);
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const result = await new GitHubContextIngestionService(projects, context).ingestProject(project);
+  assert.deepEqual(result, { ingested: 0, updated: 0, reason: "unavailable" });
+  assert.equal((await context.getProjectContext(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).length, 0);
+});
+
+test("/context project returns a project-scoped source summary", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world" };
+  const github = new GitHubService(new GitHubClient("test-token", (async (input) => {
+    if (String(input).endsWith("/readme")) {
+      return jsonResponse({
+        path: "README.md",
+        sha: "readme-sha",
+        html_url: "https://github.com/octocat/hello-world/blob/main/README.md",
+        encoding: "base64",
+        content: Buffer.from("# Hello World").toString("base64")
+      });
+    }
+    return repositoryResponse();
+  }) as typeof fetch));
+  const projects = new ProjectService(new InMemoryProjectRepository(project), github);
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const getProjectContext = new GetProjectContext(
+    projects,
+    context,
+    new GitHubContextIngestionService(projects, context)
+  );
+  let response = "";
+  const interaction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: string) => { response = value; }
+  } as never;
+  await handleContextCommand(interaction, getProjectContext, createLogger());
+  assert.match(response, /Context records: 2/);
+  assert.match(response, /github_repository/);
+  assert.match(response, /README.md/);
+});
+
+test("/context project rejects unauthorized users safely", async () => {
+  const context = new ContextService(new InMemoryContextStore(), projectService);
+  const getProjectContext = new GetProjectContext(
+    projectService,
+    context,
+    new GitHubContextIngestionService(projectService, context)
+  );
+  let response: unknown;
+  const interaction = {
+    user: { id: "other-user", username: "other", globalName: "Other" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleContextCommand(interaction, getProjectContext, createLogger());
+  assert.deepEqual(response, {
+    content: "You are not authorized to view this project context.",
+    ephemeral: true
+  });
+});
+
 test("health endpoint responds successfully", async () => {
   const server = startHealthServer(0, createLogger());
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -241,5 +430,18 @@ function jsonResponse(body: object): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "content-type": "application/json" }
+  });
+}
+
+function repositoryResponse(): Response {
+  return jsonResponse({
+    id: 1296269,
+    full_name: "octocat/hello-world",
+    private: true,
+    default_branch: "main",
+    html_url: "https://github.com/octocat/hello-world",
+    archived: false,
+    disabled: false,
+    updated_at: "2026-08-23T00:00:00Z"
   });
 }

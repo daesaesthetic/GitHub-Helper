@@ -2,15 +2,15 @@
 
 ## Purpose
 
-This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation and the Phase 2 GitHub integration foundation.
+This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, and Phase 3 Context Engine foundation.
 
 ## Current architecture
 
 The application is a TypeScript modular monolith:
 
-`Discord interaction → identity extraction → command handler → application use case → ProjectService → GitHub service → GitHub client → GitHub API`
+`Discord interaction → identity extraction → command handler → application use case → ProjectService → ContextService / GitHub service → ContextStore / GitHub client → PostgreSQL / GitHub API`
 
-The HTTP layer exposes `/health` for operational diagnostics. The project repository is currently in memory and is intentionally replaceable with PostgreSQL later. Discord commands never construct GitHub API requests directly.
+The HTTP layer exposes `/health` for operational diagnostics. The project repository remains in memory; Context Engine records are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access context storage directly.
 
 ## Technology stack
 
@@ -19,11 +19,11 @@ The HTTP layer exposes `/health` for operational diagnostics. The project reposi
 - discord.js 14
 - Node.js HTTP server
 - Node built-in test runner
-- No database is required in this phase
+- PostgreSQL via the provisioned Replit database
 
 ## Implemented functionality
 
-The only user-facing command is:
+User-facing commands:
 
 `/project status`
 
@@ -40,6 +40,36 @@ When GitHub development configuration is present, it uses the configured credent
 The command only exposes safe repository metadata. GitHub credential, headers, raw API errors, and stack traces are never included in Discord responses.
 
 When GitHub is not configured, `/project status` reports **GitHub: Not connected**. Invalid credentials, inaccessible repositories, rate limits, malformed API responses, and network/API failures report a concise **GitHub: Unavailable** state.
+
+The Context Engine adds:
+
+`/context project`
+
+It authorizes the requesting Discord user, ingests the configured repository's limited source context when available, and reports the project-scoped context record count, source types, and basic source/provenance information. It is a retrieval and verification interface, not an AI chat command.
+
+## Context Engine
+
+### Context model and provenance
+
+Each record has a stable ID, project ID, bounded scope, bounded source type, stable source identity, source content, metadata, provenance, creation/update timestamps, and an optional source timestamp.
+
+Supported source types are GitHub repository, GitHub file, GitHub documentation, Discord message, Discord conversation, and user-authored context. Only GitHub repository metadata and GitHub README/documentation are ingested in this phase. Discord source types exist for architectural compatibility only.
+
+Provenance is preserved rather than fabricated. GitHub-derived records include only available repository owner, repository name, repository ID, file path, source URL, and source reference values.
+
+### Scope and retrieval
+
+The model supports user, project, repository, Discord guild, Discord channel, and conversation scopes. The operational scope for this phase is project scope. `ContextService` is the application-facing retrieval boundary and checks existing project ownership authorization before returning or deleting project context.
+
+### Persistence
+
+`context_records` is the only Context Engine table. Its schema source is `src/context/schema.sql`; it stores records, JSON metadata/provenance, source identity, and timestamps, with indexes for project and source retrieval. The schema was applied to the development database. Application startup does not run database DDL.
+
+### GitHub ingestion
+
+`GitHubContextIngestionService` converts actual GitHub repository metadata and an available README into project-scoped records. It uses stable repository/readme source identities and upserts them, so repeated ingestion does not create duplicate records. A changed source updates the same stable context record; this phase does not maintain a full historical version system.
+
+The ingestion path does not ingest the whole repository, recursively inspect files, or process likely secret-bearing paths such as `.env`, credentials, keys, or PEM files.
 
 The seed project is temporary development data:
 
@@ -91,11 +121,12 @@ Optional:
 - GitHub credentials must come from environment variables or Replit Secrets and must never be committed, logged, returned to Discord, or stored on a project.
 - Project authorization occurs before any GitHub request. The development integration is limited to the configured project owner.
 - GitHub API communication is centralized behind the GitHub client and service, with typed API responses and safe normalized failure categories.
-- No background polling, synchronization, database persistence, or cache is used in this phase.
+- Context content is not logged. Unauthorized users cannot retrieve project context.
+- No background polling, continuous synchronization, broad Discord ingestion, or cache is used in this phase.
 
 ## Testing and verification
 
-Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Tests never require a live GitHub credential.
+Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Tests never require a live GitHub credential.
 
 Run:
 
@@ -105,8 +136,8 @@ npm run typecheck
 npm run build
 ```
 
-Live GitHub verification is **not verified** until valid GitHub development configuration is supplied through Replit Secrets. When configured, verify `/project status` in Discord and `GET /health`.
+Live GitHub and Context Engine verification is **not verified** until valid GitHub development configuration is supplied through Replit Secrets. When configured, verify `/project status`, `/context project`, and `GET /health`.
 
 ## Intentionally deferred
 
-Not implemented: GitHub App/OAuth onboarding, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, PostgreSQL persistence, Context Engine, Reality Layer, Project Intelligence, Developer Vault, desktop functionality, Replit integration, AI repository analysis, and destructive GitHub operations.
+Not implemented: GitHub App/OAuth onboarding, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Reality Layer, Project Intelligence, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.

@@ -8,6 +8,12 @@ import { GetProjectStatus } from "./use-cases/project-status.js";
 import { handleProjectCommand, projectStatusCommand } from "./discord/project-status-command.js";
 import { GitHubClient } from "./github/github-client.js";
 import { GitHubService } from "./github/github-service.js";
+import { Pool } from "pg";
+import { PostgresContextStore } from "./context/context-store.js";
+import { ContextService } from "./context/context-service.js";
+import { GitHubContextIngestionService } from "./context/github-context-ingestion-service.js";
+import { GetProjectContext } from "./use-cases/project-context.js";
+import { contextCommand, handleContextCommand } from "./discord/context-command.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -33,6 +39,13 @@ if (config.github) {
 const github = config.github ? new GitHubService(new GitHubClient(config.github.token)) : undefined;
 const projects = new ProjectService(new InMemoryProjectRepository(seedProject), github);
 const getProjectStatus = new GetProjectStatus(projects);
+const database = new Pool({ connectionString: process.env.DATABASE_URL });
+const context = new ContextService(new PostgresContextStore(database), projects);
+const getProjectContext = new GetProjectContext(
+  projects,
+  context,
+  new GitHubContextIngestionService(projects, context)
+);
 const healthServer = startHealthServer(config.port, logger);
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -41,9 +54,13 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand() || interaction.commandName !== "project") return;
+  if (!interaction.isChatInputCommand() || !["project", "context"].includes(interaction.commandName)) return;
   try {
-    await handleProjectCommand(interaction, getProjectStatus, logger);
+    if (interaction.commandName === "project") {
+      await handleProjectCommand(interaction, getProjectStatus, logger);
+    } else {
+      await handleContextCommand(interaction, getProjectContext, logger);
+    }
   } catch (error) {
     logger.error("interaction.unhandled", {
       command: interaction.commandName,
@@ -58,9 +75,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 async function registerCommands(): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(config.discordToken);
   await rest.put(Routes.applicationCommands(config.discordClientId), {
-    body: [projectStatusCommand.toJSON()]
+    body: [projectStatusCommand.toJSON(), contextCommand.toJSON()]
   });
-  logger.info("discord.commands_registered", { commands: ["project status"] });
+  logger.info("discord.commands_registered", { commands: ["project status", "context project"] });
 }
 
 async function start(): Promise<void> {
@@ -73,6 +90,7 @@ function shutdown(signal: string): void {
   logger.info("application.shutdown", { signal });
   healthServer.close();
   client.destroy();
+  void database.end();
 }
 
 process.once("SIGINT", () => shutdown("SIGINT"));

@@ -12,6 +12,14 @@ export interface GitHubRepository {
   htmlUrl: string;
   archived: boolean;
   disabled: boolean;
+  updatedAt: string;
+}
+
+export interface GitHubReadme {
+  path: string;
+  sha: string;
+  htmlUrl: string;
+  content: string;
 }
 
 export type GitHubFetch = typeof fetch;
@@ -55,7 +63,8 @@ export class GitHubClient {
       typeof body.default_branch !== "string" ||
       typeof body.html_url !== "string" ||
       typeof body.archived !== "boolean" ||
-      typeof body.disabled !== "boolean"
+      typeof body.disabled !== "boolean" ||
+      typeof body.updated_at !== "string"
     ) {
       throw new GitHubApiError(response.status, "invalid_response");
     }
@@ -66,7 +75,30 @@ export class GitHubClient {
       defaultBranch: body.default_branch,
       htmlUrl: body.html_url,
       archived: body.archived,
-      disabled: body.disabled
+      disabled: body.disabled,
+      updatedAt: body.updated_at
+    };
+  }
+
+  async getReadme(owner: string, repository: string): Promise<GitHubReadme> {
+    const response = await this.request(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/readme`
+    );
+    const body = await this.readJson(response);
+    if (
+      typeof body.path !== "string" ||
+      typeof body.sha !== "string" ||
+      typeof body.html_url !== "string" ||
+      typeof body.content !== "string" ||
+      body.encoding !== "base64"
+    ) {
+      throw new GitHubApiError(response.status, "invalid_response");
+    }
+    return {
+      path: body.path,
+      sha: body.sha,
+      htmlUrl: body.html_url,
+      content: Buffer.from(body.content.replace(/\n/g, ""), "base64").toString("utf8")
     };
   }
 
