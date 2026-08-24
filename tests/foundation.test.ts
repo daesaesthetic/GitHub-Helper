@@ -78,6 +78,10 @@ import {
   GitHubAppAuthenticator
 } from "../src/github-connections/github-app-authenticator.js";
 import { GitHubConnectionNotFoundError } from "../src/github-connections/github-connection.js";
+import { activityCommand, handleActivityCommand } from "../src/discord/activity-command.js";
+import { trendsCommand, handleTrendsCommand } from "../src/discord/trends-command.js";
+import { helpCommand, handleHelpCommand } from "../src/discord/help-command.js";
+import { setupCommand, handleSetupCommand } from "../src/discord/setup-command.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
@@ -577,6 +581,45 @@ test("configuration validates required values", () => {
     PORT: "3010"
   });
   assert.equal(config.port, 3010);
+});
+
+test("owner command surface includes setup, help, activity, and trends", () => {
+  assert.deepEqual(
+    [helpCommand, setupCommand, activityCommand, trendsCommand].map((command) => command.toJSON().name),
+    ["help", "setup", "activity", "trends"]
+  );
+  assert.equal(activityCommand.toJSON().options?.[0]?.name, "project");
+  assert.equal(trendsCommand.toJSON().options?.[0]?.name, "project");
+});
+
+test("help and setup commands are owner-only and do not expose configuration secrets", async () => {
+  let response: unknown;
+  const interaction = {
+    user: { id: "not-owner", username: "other", globalName: "Other" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleHelpCommand(interaction, ownerId, createLogger());
+  assert.deepEqual(response, {
+    ephemeral: true,
+    content: "This personal bot is restricted to its configured owner."
+  });
+
+  response = undefined;
+  const ownerInteraction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleSetupCommand(ownerInteraction, ownerId, {
+    githubConfigured: true,
+    githubAppConfigured: false
+  }, createLogger());
+  assert.match(String((response as { content: string }).content), /Development GitHub access: configured/);
+  assert.match(String((response as { content: string }).content), /No public deployment is required/);
+  assert.doesNotMatch(String((response as { content: string }).content), /test-token|client-secret|private-key-value/);
 });
 
 test("GitHub configuration loads only when complete", () => {

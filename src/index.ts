@@ -42,6 +42,12 @@ import {
 import { GitHubAppService } from "./github-connections/github-app-service.js";
 import { GitHubAppAuthenticator } from "./github-connections/github-app-authenticator.js";
 import { GitHubCredentialResolver } from "./github-connections/github-credential-resolver.js";
+import { activityCommand, handleActivityCommand } from "./discord/activity-command.js";
+import { trendsCommand, handleTrendsCommand } from "./discord/trends-command.js";
+import { helpCommand, handleHelpCommand } from "./discord/help-command.js";
+import { setupCommand, handleSetupCommand } from "./discord/setup-command.js";
+import { GetProjectActivity } from "./use-cases/project-activity.js";
+import { GetProjectTrends } from "./use-cases/project-trends.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -69,6 +75,7 @@ const github = config.github || config.githubApp
   : undefined;
 const projects = new ProjectService(new InMemoryProjectRepository(seedProject), github);
 const activity = new GitHubActivityService(projects);
+const getProjectActivity = new GetProjectActivity(activity);
 const getProjectStatus = new GetProjectStatus(projects);
 const database = new Pool({ connectionString: process.env.DATABASE_URL });
 const context = new ContextService(new PostgresContextStore(database), projects);
@@ -92,6 +99,7 @@ const intelligence = new ProjectIntelligenceService(
   activity
 );
 const getProjectIntelligence = new GetProjectIntelligence(intelligence);
+const getProjectTrends = new GetProjectTrends(intelligence);
 const discordAccounts = new DiscordAccountService(new PostgresDiscordAccountStore(database));
 const githubIdentities = new GitHubIdentityService(new PostgresGitHubIdentityStore(database));
 const githubConnections = new GitHubConnectionService(
@@ -158,7 +166,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
     if (!interaction.isChatInputCommand() ||
-         !["project", "context", "reality", "intelligence", "milestone", "github"].includes(interaction.commandName)) return;
+         !["project", "context", "reality", "intelligence", "milestone", "github", "activity", "trends", "help", "setup"].includes(interaction.commandName)) return;
     if (interaction.commandName === "project") {
       await handleProjectCommand(interaction, getProjectStatus, logger);
     } else if (interaction.commandName === "context") {
@@ -169,6 +177,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleMilestoneCommand(interaction, milestones, logger);
     } else if (interaction.commandName === "github") {
       await handleGitHubCommand(interaction, githubApp, logger);
+    } else if (interaction.commandName === "activity") {
+      await handleActivityCommand(interaction, getProjectActivity, logger);
+    } else if (interaction.commandName === "trends") {
+      await handleTrendsCommand(interaction, getProjectTrends, logger);
+    } else if (interaction.commandName === "help") {
+      await handleHelpCommand(interaction, ownerId, logger);
+    } else if (interaction.commandName === "setup") {
+      await handleSetupCommand(interaction, ownerId, {
+        githubConfigured: Boolean(config.github),
+        githubAppConfigured: Boolean(config.githubApp)
+      }, logger);
     } else {
       await handleIntelligenceCommand(interaction, getProjectIntelligence, logger);
     }
@@ -195,7 +214,11 @@ async function registerCommands(): Promise<void> {
       realityCommand.toJSON(),
       intelligenceCommand.toJSON(),
       milestoneCommand.toJSON(),
-      githubCommand.toJSON()
+      githubCommand.toJSON(),
+      activityCommand.toJSON(),
+      trendsCommand.toJSON(),
+      helpCommand.toJSON(),
+      setupCommand.toJSON()
     ]
   });
   logger.info("discord.commands_registered", {
@@ -205,7 +228,11 @@ async function registerCommands(): Promise<void> {
       "reality project",
       "intelligence project",
       "milestone list/create/update/status/delete",
-      "github connect/status/repositories/disconnect"
+      "github connect/status/repositories/disconnect",
+      "activity project",
+      "trends project",
+      "help",
+      "setup"
     ]
   });
 }

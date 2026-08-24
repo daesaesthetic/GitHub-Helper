@@ -11,12 +11,30 @@ export class ProjectAccessDeniedError extends Error {}
 
 export interface ProjectRepository {
   findById(id: string): Project | undefined;
+  list(): Project[];
+  save(project: Project): Project;
 }
 
 export class InMemoryProjectRepository implements ProjectRepository {
-  constructor(private readonly project: Project) {}
+  private readonly projects: Project[];
+
+  constructor(project: Project | Project[]) {
+    this.projects = Array.isArray(project) ? [...project] : [project];
+  }
+
   findById(id: string): Project | undefined {
-    return id === this.project.id ? this.project : undefined;
+    return this.projects.find((project) => project.id === id);
+  }
+
+  list(): Project[] {
+    return [...this.projects];
+  }
+
+  save(project: Project): Project {
+    const index = this.projects.findIndex((item) => item.id === project.id);
+    if (index >= 0) this.projects[index] = project;
+    else this.projects.push(project);
+    return project;
   }
 }
 
@@ -36,6 +54,34 @@ export class ProjectService {
     const project = this.repository.findById(id);
     if (!project) throw new ProjectNotFoundError("Project was not found");
     return project;
+  }
+
+  getAccessibleProjects(identity: RequestIdentity): Project[] {
+    return this.repository.list().filter((project) => project.ownerId === identity.userId);
+  }
+
+  createProject(input: {
+    id: string;
+    name: string;
+    description: string;
+    ownerId: string;
+    github: { owner: string; repository: string; repositoryId?: string };
+  }, identity: RequestIdentity): Project {
+    if (input.ownerId !== identity.userId) {
+      throw new ProjectAccessDeniedError("You are not authorized to create this project");
+    }
+    const existing = this.repository.findById(input.id);
+    if (existing) return existing;
+    return this.repository.save({
+      id: input.id,
+      name: input.name,
+      ownerId: input.ownerId,
+      description: input.description,
+      status: "Development",
+      metadata: { source: "github-repository" },
+      integrationReferences: ["github"],
+      integrations: { github: input.github }
+    });
   }
 
   getAccessibleProject(id: string, identity: RequestIdentity): Project {

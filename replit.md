@@ -41,6 +41,18 @@ The command only exposes safe repository metadata. GitHub credential, headers, r
 
 When GitHub is not configured, `/project status` reports **GitHub: Not configured**. Invalid credentials, inaccessible repositories, rate limits, malformed API responses, and network/API failures report a concise **GitHub: Unavailable** state.
 
+`/help` and `/setup`
+
+These owner-only commands explain the available bot operations and show whether the token-only development path is ready. They never display credentials or require a public deployment.
+
+`/activity project`
+
+This owner-only command shows bounded recent commits, issues, and pull requests without persisting the activity.
+
+`/trends project`
+
+This owner-only command shows bounded observations over the last 30 days. Counts are explicitly labeled as observed rather than complete historical totals.
+
 The Context Engine adds:
 
 `/context project`
@@ -69,7 +81,7 @@ They let the authorized project owner establish, view, change, order, and remove
 
 The owner-facing Discord workflow is:
 
-`/project status` → `/github status` → `/context project` → `/reality project` → `/milestone list` → `/intelligence project`
+`/help` → `/setup` → `/project status` → `/activity project` → `/trends project` → `/context project` → `/reality project` → `/milestone list` → `/intelligence project`
 
 Every project-scoped command checks ownership through `ProjectService` before returning project, repository, Context, Reality, milestone, Activity, or Intelligence data. Unauthorized requests receive a concise ephemeral authorization message and never reach GitHub credential selection. Unexpected interaction failures also receive a safe ephemeral retry/health-check message without exception details.
 
@@ -102,6 +114,8 @@ The prototype does not fabricate availability. `0` records/items means a success
 Discord command registration occurs before login, and the process exposes `/health` independently for operational checks. Development GitHub configuration is optional, and missing GitHub App configuration does not prevent startup.
 
 The current environment can live-verify startup, command registration, Discord connection, and `/health`. Command handlers are also exercised by automated tests. Live user-owned GitHub App connection, repository discovery/selection, and disconnect verification require the optional GitHub App configuration and an authorized external installation; they must not be claimed when those settings are absent.
+
+For a single-owner, no-deployment setup, configure `AUTHORIZED_USER_ID`, `GITHUB_TOKEN`, `GITHUB_OWNER`, and `GITHUB_REPOSITORY` as secure environment values. The GitHub App values are optional. No paid deployment is needed for this mode.
 
 ## Context Engine
 

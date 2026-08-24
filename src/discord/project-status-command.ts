@@ -15,13 +15,18 @@ export const projectStatusCommand = new SlashCommandBuilder()
     subcommand
       .setName("status")
       .setDescription("View project status")
-      .addStringOption((option) =>
-        option
-          .setName("project")
-          .setDescription("Project to inspect")
-          .setRequired(true)
-          .addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID })
-      )
+       .addStringOption((option) => option.setName("project").setDescription("Project ID").setRequired(true))
+   )
+  .addSubcommand((subcommand) =>
+    subcommand.setName("list").setDescription("List your projects")
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("add")
+      .setDescription("Add a GitHub repository as a project")
+      .addStringOption((option) => option.setName("owner").setDescription("GitHub owner or organization").setRequired(true))
+      .addStringOption((option) => option.setName("repository").setDescription("GitHub repository name").setRequired(true))
+      .addStringOption((option) => option.setName("name").setDescription("Project display name"))
   );
 
 export async function handleProjectCommand(
@@ -30,8 +35,28 @@ export async function handleProjectCommand(
   logger: Logger
 ): Promise<void> {
   const identity = extractIdentity(interaction);
-  const projectId = interaction.options.getString("project", true);
+  const action = interaction.options.getSubcommand();
+  const projectId = interaction.options.getString("project") ?? DEVELOPMENT_PROJECT_ID;
   try {
+    if (action === "list") {
+      const projects = getProjectStatus.projects.getAccessibleProjects(identity);
+      await interaction.reply(projects.length
+        ? projects.map((project) => `- **${project.name}** — \`${project.id}\``).join("\n")
+        : "No projects configured yet.");
+      return;
+    }
+    if (action === "add") {
+      const owner = interaction.options.getString("owner", true);
+      const repository = interaction.options.getString("repository", true);
+      const name = interaction.options.getString("name") ?? `${owner}/${repository}`;
+      const project = await getProjectStatus.projects.createGitHubProject({
+        owner,
+        repository,
+        name
+      }, identity);
+      await interaction.reply(`Project added: **${project.name}**\nID: \`${project.id}\``);
+      return;
+    }
     const result = await getProjectStatus.execute(projectId, identity);
     logger.info("command.completed", { command: "project.status", userId: identity.userId, projectId });
     await interaction.reply([
@@ -46,6 +71,8 @@ export async function handleProjectCommand(
       ? "You are not authorized to view this project."
       : error instanceof ProjectNotFoundError
         ? "That project could not be found."
+        : action === "add"
+          ? "Unable to add that GitHub repository. Check the owner, repository name, and GitHub access."
         : "Unable to retrieve project status right now.";
     logger.error("command.failed", {
       command: "project.status",

@@ -67,6 +67,16 @@ export class ProjectIntelligenceService {
       generatedAt
     };
   }
+
+  async getProjectTrends(
+    projectId: string,
+    identity: RequestIdentity
+  ): Promise<RepositoryDevelopmentTrends> {
+    const project = this.projects.getAccessibleProject(projectId, identity);
+    const activity = await (this.activity?.getProjectActivity(project.id, identity)
+      ?? Promise.resolve({ connected: false as const, reason: "not_configured" as const }));
+    return getDevelopmentTrends(activity, this.now);
+  }
 }
 
 function getDevelopmentTrends(
@@ -110,7 +120,7 @@ function getDevelopmentTrends(
     status: "available",
     window,
     coverage: "bounded",
-    classification: activityPresent ? "active" : "unavailable",
+    classification: activityPresent ? "active" : "quiet",
     activityPresent,
     observed,
     retrievedAt: activity.retrievedAt
