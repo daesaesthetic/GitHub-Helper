@@ -22,7 +22,7 @@ export class GetProjectContext {
 
   async execute(projectId: string, identity: RequestIdentity): Promise<ProjectContextResult> {
     const project = this.projects.getAccessibleProject(projectId, identity);
-    const ingestion = await this.ingestion.ingestProject(project);
+    const ingestion = await this.ingestion.ingestProject(project, identity);
     const records = await this.context.getProjectContext(projectId, identity);
     return {
       projectName: project.name,

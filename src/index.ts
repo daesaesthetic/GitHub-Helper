@@ -41,6 +41,7 @@ import {
 } from "./github-connections/github-connection-services.js";
 import { GitHubAppService } from "./github-connections/github-app-service.js";
 import { GitHubAppAuthenticator } from "./github-connections/github-app-authenticator.js";
+import { GitHubCredentialResolver } from "./github-connections/github-credential-resolver.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -63,7 +64,9 @@ if (config.github) {
   };
   seedProject.integrationReferences = ["github"];
 }
-const github = config.github ? new GitHubService(new GitHubClient(config.github.token)) : undefined;
+const github = config.github || config.githubApp
+  ? new GitHubService(new GitHubClient(config.github?.token ?? ""))
+  : undefined;
 const projects = new ProjectService(new InMemoryProjectRepository(seedProject), github);
 const activity = new GitHubActivityService(projects);
 const getProjectStatus = new GetProjectStatus(projects);
@@ -106,6 +109,15 @@ const githubAuthorization = new AuthorizationStateService(
   new PostgresGitHubAuthorizationStateStore(database),
   discordAccounts
 );
+const githubCredentials = new GitHubCredentialResolver(
+  projects,
+  new PostgresProjectGitHubRepositoryStore(database),
+  new PostgresGitHubConnectionStore(database),
+  new PostgresDiscordAccountStore(database),
+  config.github?.token,
+  new GitHubAppAuthenticator(config.githubApp)
+);
+projects.setCredentialResolver(githubCredentials);
 const githubApp = new GitHubAppService(
   config.githubApp,
   githubAuthorization,

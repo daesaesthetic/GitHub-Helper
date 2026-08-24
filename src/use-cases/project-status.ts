@@ -16,7 +16,7 @@ export class GetProjectStatus {
 
   async execute(projectId: string, identity: RequestIdentity): Promise<ProjectStatusResult> {
     const project = this.projects.getStatus(projectId, identity);
-    const github: GitHubStatus = await this.projects.getGitHubStatus(project);
+    const github: GitHubStatus = await this.projects.getGitHubStatus(project, identity);
     return {
       name: project.name,
       status: project.status,

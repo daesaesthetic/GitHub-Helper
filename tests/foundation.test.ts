@@ -230,6 +230,53 @@ test("credential resolution prefers an owned connection and falls back to develo
   );
 });
 
+test("project GitHub status uses an active installation credential before the development fallback", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "owner", repository: "repo" };
+  const observedTokens: string[] = [];
+  const github = new GitHubService(new GitHubClient("development-token", (async (input, init) => {
+    observedTokens.push(String((init?.headers as Record<string, string>)?.Authorization));
+    const path = String(input);
+    if (path.endsWith("/user")) return Response.json({ login: "owner", id: 55, html_url: "https://github.com/owner" });
+    return Response.json({
+      id: 999, full_name: "owner/repo", private: true, default_branch: "main",
+      html_url: "https://github.com/owner/repo", archived: false, disabled: false,
+      updated_at: "2026-01-01T00:00:00Z"
+    });
+  }) as typeof fetch));
+  const projects = new ProjectService(new InMemoryProjectRepository(project), github);
+  const accounts = new InMemoryDiscordAccountStore();
+  const connections = new InMemoryGitHubConnectionStore();
+  const associations = new InMemoryProjectGitHubRepositoryStore();
+  const accountService = new DiscordAccountService(accounts);
+  const connection = await new GitHubConnectionService(
+    connections, accountService, new GitHubIdentityService(new InMemoryGitHubIdentityStore())
+  ).connect({
+    id: "credential-precedence",
+    discordUserId: ownerId,
+    githubUserId: 55,
+    login: "owner",
+    installationId: 400,
+    permissionState: "read_only"
+  });
+  await associations.upsert(createProjectGitHubRepository({
+    id: "credential-precedence-association",
+    projectId: project.id,
+    connectionId: connection.id,
+    repositoryId: 999,
+    owner: "owner",
+    repository: "repo",
+    repositoryUrl: "https://github.com/owner/repo"
+  }));
+  projects.setCredentialResolver(new GitHubCredentialResolver(
+    projects, associations, connections, accounts, "development-token",
+    { async createInstallationToken() { return { token: "installation-token", expiresAt: "2026-01-01T01:00:00Z" }; } }
+  ));
+  const status = await projects.getGitHubStatus(project, { userId: ownerId });
+  assert.equal(status.connected, true);
+  assert.deepEqual(observedTokens, ["Bearer installation-token", "Bearer installation-token"]);
+});
+
 test("extracts Discord user, guild, and channel identity", () => {
   const identity = extractIdentity({
     user: { id: "discord-123", username: "dev", globalName: "Developer" } as never,

@@ -68,6 +68,10 @@ export class GitHubClient {
     private readonly fetcher: GitHubFetch = fetch
   ) {}
 
+  withToken(token: string): GitHubClient {
+    return new GitHubClient(token, this.fetcher);
+  }
+
   async getAuthenticatedUser(): Promise<GitHubUser> {
     const response = await this.request("/user");
     const body = await this.readJson(response);

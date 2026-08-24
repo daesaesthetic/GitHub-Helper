@@ -13,6 +13,6 @@ export class GitHubActivityService {
     limit = DEFAULT_ACTIVITY_LIMIT
   ): Promise<GitHubRepositoryActivityStatus> {
     const project = this.projects.getAccessibleProject(projectId, identity);
-    return this.projects.getGitHubActivity(project, limit);
+    return this.projects.getGitHubActivity(project, limit, identity);
   }
 }

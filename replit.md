@@ -168,7 +168,7 @@ The seed project is temporary development data:
 - Status: `Development`
 - Owner: `AUTHORIZED_USER_ID`, or the development fallback when that variable is absent
 
-## GitHub development authentication and linking
+## GitHub authentication, connections, and credential resolution
 
 The current Phase 2 authentication model is a development-only, secret-based credential. Store `GITHUB_TOKEN` in Replit Secrets or an uncommitted local `.env` file; it is not stored in the project model or source code.
 
@@ -181,43 +181,36 @@ GitHub is optional. To link the development project, set these variables togethe
 
 The configured owner, repository, and optional repository ID are stored as a structured project integration reference. The credential remains in configuration only. If any GitHub variable is supplied, `GITHUB_TOKEN`, `GITHUB_OWNER`, and `GITHUB_REPOSITORY` must all be present or startup fails with a safe configuration error.
 
-This is deliberately not a full production authorization flow. The GitHub client/service boundary can later be backed by a GitHub App or OAuth user authorization without changing Discord command behavior.
+The development token is a fallback, not a user-owned connection. User-owned GitHub App access is optional and does not prevent development startup.
 
-## Durable GitHub connection foundation
+### GitHub App configuration and connection flow
 
-The application now has persistence and service boundaries for future user-owned GitHub App authorization. No browser authorization, App installation onboarding, token exchange, token refresh, or Discord connection command is implemented in this phase.
+When all of these optional values are configured, the application enables GitHub App authorization:
 
-### Durable identity and association model
+- `GITHUB_APP_ID`
+- `GITHUB_APP_PRIVATE_KEY`
+- `GITHUB_APP_CLIENT_ID`
+- `GITHUB_APP_CLIENT_SECRET`
+- `GITHUB_APP_SLUG`
+- `GITHUB_APP_CALLBACK_URL`
 
-The foundation separates the following concepts:
+`/github connect` authorizes the project owner, creates an expiring one-time server-side state record, and starts the GitHub App installation flow. The callback exchanges the OAuth code, verifies the GitHub user, validates the supplied installation through App JWT authentication, and creates or updates the durable connection.
 
-- A `discord_accounts` record holds a stable Discord user ID used for future account linking. It does not replace `Project.ownerId` or ProjectService authorization.
-- A `github_identities` record holds the authoritative numeric GitHub user ID and current login. GitHub login is descriptive metadata and may be updated; no token is stored in this record.
-- A `github_connections` record represents a future GitHub App connection or installation. It refers separately to the Discord account, GitHub identity, optional numeric installation ID, account/organization metadata, permission state, and lifecycle status.
-- A `project_github_repositories` record associates one project with one GitHub repository connection. Numeric GitHub repository ID is authoritative; owner/name and URL are descriptive metadata for display and routing.
-- A `github_authorization_states` record supports a future browser flow with a random state nonce, Discord account binding, intended operation, optional project, expiry, and single-use consumption.
+The App private key is configuration-only. App JWTs and installation tokens are short-lived, generated only when needed, and never logged, returned to Discord, or persisted.
 
-Connection records contain no access token, refresh token, GitHub App private key, or authorization code. The foundation does not fabricate connection records for the development token.
+### Durable identity, repository selection, and lifecycle
 
-### Credential resolution
+The durable model keeps Discord account, numeric GitHub identity, App installation, GitHub repository, and project distinct. `/github status` returns safe connection metadata. `/github repositories` retrieves bounded installation-scoped repository metadata and presents up to Discord's 25-option selection limit. Selected repositories are revalidated server-side and stored through the project repository association service. `/github disconnect` marks the active user-owned connection disconnected without deleting Context, Reality, Intelligence, or milestones.
 
-`GitHubCredentialResolver` establishes the future credential-selection boundary. It authorizes the project through ProjectService before returning any result, and gives an active connection owned by that Discord user precedence over the development token:
+### Project-specific credentials
 
-1. An active user-owned project connection
-2. The existing `GITHUB_TOKEN` development fallback
+`GitHubCredentialResolver` is the only project credential boundary. It authorizes through `ProjectService` before selecting a credential:
+
+1. An active user-owned association and installation token
+2. The configured development `GITHUB_TOKEN`
 3. Unavailable
 
-The existing project has no user-owned connection flow yet, so production connection credentials cannot be minted in this phase. A returned user-owned connection is intentionally credential-free until the future GitHub App authorization task supplies short-lived installation tokens. The development token remains the only executable GitHub API credential and stays confined to configuration and the existing GitHub client/service boundary.
-
-### Authorization and isolation
-
-Connection and repository-association services check ownership below the Discord command layer:
-
-- Project authorization remains exclusively in ProjectService.
-- A Discord user can retrieve or change only their own GitHub connection.
-- A project association can be created only by its authorized project owner using that owner’s active connection.
-- Resolving a project credential always checks project ownership first.
-- A repository association cannot authorize another project or Discord user.
+`ProjectService` supplies the resolved token to the existing GitHub client/service for project status, Context ingestion, bounded Activity, and Intelligence's existing lower-level requests. No consumer independently chooses credentials. Unauthorized project access never reaches either credential source.
 
 ### Persistence
 
@@ -229,7 +222,7 @@ The GitHub connection schema source is `src/github-connections/schema.sql`. It c
 - `project_github_repositories`
 - `github_authorization_states`
 
-Important constraints include unique Discord user IDs, unique numeric GitHub user IDs, unique installation IDs when supplied, one repository association per project, a unique connection/repository pair, state nonce uniqueness, lifecycle status checks, foreign keys from connections to durable accounts/identities, and a partial expiry index for unconsumed authorization states.
+Important constraints include unique Discord user IDs, unique numeric GitHub user IDs, unique installation IDs when supplied, one repository association per project, a unique connection/repository pair, state nonce uniqueness, lifecycle status checks, foreign keys from connections to durable accounts/identities, and a partial expiry index for unconsumed authorization states. No table stores access tokens, OAuth tokens, App JWTs, client secrets, or private keys.
 
 The project model itself remains the existing deterministic in-memory seed. The association tables use stable project IDs, allowing durable connection data to be introduced without creating a competing project authorization system. Persisting a full mutable project catalog remains a separate future decision.
 

@@ -48,6 +48,10 @@ export class GitHubService {
     return this.client.getAuthenticatedUser();
   }
 
+  withCredential(token: string): GitHubService {
+    return new GitHubService(this.client.withToken(token));
+  }
+
   async getRepositoryStatus(reference: GitHubProjectReference): Promise<GitHubStatus> {
     try {
       const [account, repository] = await Promise.all([

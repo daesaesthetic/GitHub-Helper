@@ -1,4 +1,5 @@
 import type { Project } from "../projects/project.js";
+import type { RequestIdentity } from "../identity.js";
 import { ProjectService } from "../projects/project-service.js";
 import type { ContextRecord } from "./context.js";
 import { isSecretBearingPath } from "./context.js";
@@ -16,8 +17,8 @@ export class GitHubContextIngestionService {
     private readonly context: ContextService
   ) {}
 
-  async ingestProject(project: Project): Promise<ContextIngestionResult> {
-    const github = await this.projects.getGitHubRepositoryContext(project);
+  async ingestProject(project: Project, identity?: RequestIdentity): Promise<ContextIngestionResult> {
+    const github = await this.projects.getGitHubRepositoryContext(project, identity);
     if (!github.connected) return { ingested: 0, updated: 0, reason: github.reason };
 
     const repository = github.repository;
