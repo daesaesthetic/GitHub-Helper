@@ -9,9 +9,9 @@ import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/proj
 import {
   CurrentMilestoneConflictError,
   MilestoneNotFoundError,
-  MilestoneService,
-  MilestoneValidationError
+  MilestoneService
 } from "../milestones/milestone-service.js";
+import { MilestoneValidationError } from "../milestones/milestone.js";
 import type { Logger } from "../logging.js";
 
 const statuses = [

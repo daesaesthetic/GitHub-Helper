@@ -147,6 +147,11 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  const interactionLabel = interaction.isChatInputCommand()
+    ? interaction.commandName
+    : interaction.isStringSelectMenu()
+      ? "github.repositories.select"
+      : "interaction";
   try {
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith("github.repositories:")) {
       await handleGitHubRepositorySelection(interaction, githubApp, logger);
@@ -169,7 +174,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
   } catch (error) {
     logger.error("interaction.unhandled", {
-      command: interaction.commandName,
+      command: interactionLabel,
       error: error instanceof Error ? error.name : "UnknownError"
     });
     if (interaction.isRepliable() && !interaction.replied) {

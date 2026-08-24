@@ -59,7 +59,9 @@ export async function handleProjectCommand(
 
 function formatGitHub(result: Awaited<ReturnType<GetProjectStatus["execute"]>>): string {
   if (!result.github || !result.github.connected) {
-    return `GitHub: ${result.github?.reason === "not_configured" ? "Not connected" : "Unavailable"}`;
+    return result.github?.reason === "not_configured"
+      ? "GitHub: Not configured\nConfigure development GitHub access or use /github connect when GitHub App authorization is available."
+      : "GitHub: Unavailable\nRepository status could not be established right now.";
   }
   const repository = result.github.repository;
   return [

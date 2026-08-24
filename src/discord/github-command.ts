@@ -2,8 +2,9 @@ import { ChatInputCommandInteraction, StringSelectMenuBuilder, ActionRowBuilder,
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import { extractIdentity } from "../identity.js";
 import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/project-service.js";
-import { GitHubAppAuthenticationError, GitHubAppConfigurationError, GitHubAppService } from "../github-connections/github-app-service.js";
+import { GitHubAppConfigurationError, GitHubAppService } from "../github-connections/github-app-service.js";
 import { GitHubConnectionNotFoundError } from "../github-connections/github-connection.js";
+import { GitHubAppAuthenticationError } from "../github-connections/github-app-authenticator.js";
 import type { Logger } from "../logging.js";
 
 export const githubCommand = new SlashCommandBuilder()
@@ -36,7 +37,7 @@ export async function handleGitHubCommand(
       const lifecycleMessage = lifecycle === "revoked"
         ? "The connected GitHub installation is no longer available.\nPlease reconnect GitHub to restore access."
         : lifecycle === "suspended"
-          ? "The connected GitHub installation is currently unavailable."
+          ? "GitHub has suspended this installation. Reconnecting may not resolve the underlying suspension."
           : undefined;
       await interaction.reply({ ephemeral: true, content: result.connection
         ? [`GitHub connection: ${lifecycle === "active" ? "Active" : lifecycle === "disconnected" ? "Disconnected" : lifecycle === "revoked" ? "Revoked" : "Suspended"}`, lifecycleMessage, `Account: ${result.connection.githubAccountLogin ?? "Unknown"}`, result.association ? `Repository: ${result.association.owner}/${result.association.repository}` : "Repository: None"].filter(Boolean).join("\n")

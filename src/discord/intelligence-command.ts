@@ -78,7 +78,11 @@ function formatIntelligence(result: Awaited<ReturnType<GetProjectIntelligence["e
     "",
     "**Milestones**",
     result.milestone.status === "established"
-      ? `- Current: ${result.milestone.current ?? "Not established"}`
+      ? [
+        `- Current: ${result.milestone.current ?? "None configured"}`,
+        `- Completed: ${(result.milestone.completed ?? []).length ? result.milestone.completed!.join(", ") : "None"}`,
+        `- Upcoming: ${(result.milestone.upcoming ?? []).length ? result.milestone.upcoming!.join(", ") : "None"}`
+      ].join("\n")
       : `- Unavailable: ${result.milestone.reason}`,
     "",
     "**Supporting Context evidence**",

@@ -65,6 +65,44 @@ Persistent milestones add:
 
 They let the authorized project owner establish, view, change, order, and remove explicit project milestones. Milestones are project-owned state; they are not inferred from Context, README content, GitHub activity, or AI.
 
+## Prototype command experience and recovery
+
+The owner-facing Discord workflow is:
+
+`/project status` → `/github status` → `/context project` → `/reality project` → `/milestone list` → `/intelligence project`
+
+Every project-scoped command checks ownership through `ProjectService` before returning project, repository, Context, Reality, milestone, Activity, or Intelligence data. Unauthorized requests receive a concise ephemeral authorization message and never reach GitHub credential selection. Unexpected interaction failures also receive a safe ephemeral retry/health-check message without exception details.
+
+### Project, Context, Reality, and Intelligence
+
+- `/project status` presents project identity, status, owner, and safe GitHub repository metadata. It distinguishes **Not configured** (no development GitHub setup) from **Unavailable** (status could not be established).
+- `/context project` performs only the existing bounded idempotent repository/README ingestion. It reports record count, source types, limited provenance, and whether the latest refresh succeeded or was unavailable. An unavailable refresh never turns into a successful-looking empty result; existing Context records remain visible when present.
+- `/reality project` presents only verified Reality facts and their verification state. An empty result explicitly says that no verified Reality facts are configured. Context is never promoted to Reality by this command.
+- `/intelligence project` is the consolidated read-only view. It separately presents deterministic health/reasons, repository state, bounded GitHub Development, bounded 30-day Trends, verified Reality, current/completed/upcoming milestones, and labeled Context evidence. Empty milestone buckets are shown as `None`; unavailable milestone data remains explicitly unavailable.
+
+### Milestones
+
+`/milestone list`, `create`, `update`, `status`, and `delete` form the complete owner-managed milestone lifecycle. List output includes stable IDs required for updates, status changes, and deletion. The commands distinguish no milestones configured, missing milestones, invalid/no-op updates, and attempts to create a second current milestone. Completing a milestone sets its completion timestamp through the milestone service; GitHub activity never changes milestone status.
+
+### GitHub connection commands
+
+- `/github status` distinguishes no user-owned connection, active, disconnected, revoked, and suspended connection states. It shows only safe account and associated-repository metadata.
+- `/github connect` starts the user-owned GitHub App flow when all App configuration is available. When it is not configured, Discord explicitly says that user-owned connections are unavailable and that development GitHub access, if configured, is separate.
+- `/github repositories` requires an active user-owned installation, revalidates selections server-side, and displays no more than Discord's 25 selectable options. If more repositories are returned by the bounded discovery request, Discord says that it is showing the first 25 rather than claiming every repository is selectable.
+- `/github disconnect` marks the active user-owned connection disconnected and preserves project data, repository association, Context, Reality, milestones, and computed Intelligence. Disconnecting this application connection does not remove the external GitHub App installation.
+
+GitHub App errors are mapped to safe next actions. Missing/inactive connections prompt reconnecting; revoked installations prompt reconnecting; suspended installations explain that reconnecting might not resolve the underlying suspension; temporary GitHub failures ask the user to retry. Tokens, JWTs, private keys, OAuth codes, internal connection IDs, raw API responses, and exception messages are never returned to Discord.
+
+### Empty versus unavailable states
+
+The prototype does not fabricate availability. `0` records/items means a successful empty query. `Unavailable` means the platform could not establish the requested data. `Not configured` means optional development or GitHub App configuration is absent. This applies to project GitHub status, Context refreshes, Activity, Trends, milestones, and connection lifecycle presentation.
+
+### Runtime behavior and current limitations
+
+Discord command registration occurs before login, and the process exposes `/health` independently for operational checks. Development GitHub configuration is optional, and missing GitHub App configuration does not prevent startup.
+
+The current environment can live-verify startup, command registration, Discord connection, and `/health`. Command handlers are also exercised by automated tests. Live user-owned GitHub App connection, repository discovery/selection, and disconnect verification require the optional GitHub App configuration and an authorized external installation; they must not be claimed when those settings are absent.
+
 ## Context Engine
 
 ### Context model and provenance

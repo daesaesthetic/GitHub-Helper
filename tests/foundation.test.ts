@@ -72,10 +72,12 @@ import {
 } from "../src/github-connections/github-connection-services.js";
 import { GitHubCredentialResolver } from "../src/github-connections/github-credential-resolver.js";
 import { handleGitHubCommand } from "../src/discord/github-command.js";
+import { GitHubAppConfigurationError } from "../src/github-connections/github-app-service.js";
 import {
   GitHubAppAuthenticationError,
   GitHubAppAuthenticator
 } from "../src/github-connections/github-app-authenticator.js";
+import { GitHubConnectionNotFoundError } from "../src/github-connections/github-connection.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
@@ -398,7 +400,7 @@ test("/github status reports durable lifecycle states safely", async () => {
     ["active", "GitHub connection: Active"],
     ["disconnected", "GitHub connection: Disconnected"],
     ["revoked", "GitHub connection: Revoked\nThe connected GitHub installation is no longer available.\nPlease reconnect GitHub to restore access."],
-    ["suspended", "GitHub connection: Suspended\nThe connected GitHub installation is currently unavailable."]
+    ["suspended", "GitHub connection: Suspended\nGitHub has suspended this installation. Reconnecting may not resolve the underlying suspension."]
   ] as const) {
     let content = "";
     const interaction = {
@@ -431,6 +433,52 @@ test("/github status reports durable lifecycle states safely", async () => {
     assert.ok(content.startsWith(expected));
     assert.equal(content.includes("GitHub App API"), false);
   }
+});
+
+test("/github commands give actionable, lifecycle-safe Discord guidance", async () => {
+  const createInteraction = (action: string) => {
+    let response: unknown;
+    return {
+      interaction: {
+        user: { id: ownerId, username: "owner", globalName: "Owner" },
+        guildId: "guild-1",
+        channelId: "channel-1",
+        options: {
+          getSubcommand: () => action,
+          getString: () => DEVELOPMENT_PROJECT_ID
+        },
+        reply: async (value: unknown) => { response = value; }
+      } as never,
+      response: () => response
+    };
+  };
+
+  const connect = createInteraction("connect");
+  await handleGitHubCommand(connect.interaction, {
+    async createConnectUrl() { throw new GitHubAppConfigurationError(); }
+  } as never, createLogger());
+  assert.deepEqual(connect.response(), {
+    content: "User-owned GitHub connections are not configured yet. Use /github connect after the GitHub App is configured. Existing development GitHub access is unchanged.",
+    ephemeral: true
+  });
+
+  const repositories = createInteraction("repositories");
+  await handleGitHubCommand(repositories.interaction, {
+    async discoverRepositories() { throw new GitHubConnectionNotFoundError(); }
+  } as never, createLogger());
+  assert.deepEqual(repositories.response(), {
+    content: "Your GitHub connection is not active. Reconnect with /github connect before discovering repositories.",
+    ephemeral: true
+  });
+
+  const revoked = createInteraction("repositories");
+  await handleGitHubCommand(revoked.interaction, {
+    async discoverRepositories() { throw new GitHubAppAuthenticationError("revoked", "revoked"); }
+  } as never, createLogger());
+  assert.deepEqual(revoked.response(), {
+    content: "Your GitHub installation is no longer available. Reconnect with /github connect.",
+    ephemeral: true
+  });
 });
 
 test("project GitHub status uses an active installation credential before the development fallback", async () => {
@@ -756,7 +804,8 @@ test("/project status returns expected project information", async () => {
   } as never;
   await handleProjectCommand(interaction, new GetProjectStatus(projectService), createLogger());
   assert.match(response, /Developer Intelligence Platform/);
-  assert.match(response, /GitHub: Not connected/);
+  assert.match(response, /GitHub: Not configured/);
+  assert.match(response, /Configure development GitHub access/);
 });
 
 test("/project status displays connected GitHub repository safely", async () => {
@@ -947,8 +996,30 @@ test("/context project returns a project-scoped source summary", async () => {
   } as never;
   await handleContextCommand(interaction, getProjectContext, createLogger());
   assert.match(response, /Context records: 2/);
+  assert.match(response, /Context refresh: 2 ingested, 2 updated/);
   assert.match(response, /github_repository/);
   assert.match(response, /README.md/);
+});
+
+test("/context project distinguishes an empty result from an unavailable refresh", async () => {
+  const context = new ContextService(new InMemoryContextStore(), projectService);
+  const getProjectContext = new GetProjectContext(
+    projectService,
+    context,
+    new GitHubContextIngestionService(projectService, context)
+  );
+  let response = "";
+  const interaction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: string) => { response = value; }
+  } as never;
+  await handleContextCommand(interaction, getProjectContext, createLogger());
+  assert.match(response, /Context records: 0/);
+  assert.match(response, /Context refresh: unavailable \(not_configured\)/);
+  assert.match(response, /No Context records are available yet/);
 });
 
 test("/context project rejects unauthorized users safely", async () => {
@@ -1678,6 +1749,27 @@ test("/milestone commands create, list, and reject unauthorized access safely", 
   await handleMilestoneCommand(unauthorizedInteraction, service, createLogger());
   assert.deepEqual(response, {
     content: "You are not authorized to manage milestones for this project.",
+    ephemeral: true
+  });
+
+  const invalidUpdateInteraction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: {
+      getSubcommand: () => "update",
+      getString: (name: string) => name === "project"
+        ? DEVELOPMENT_PROJECT_ID
+        : name === "id"
+          ? "milestone-id"
+          : null,
+      getInteger: () => null
+    },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleMilestoneCommand(invalidUpdateInteraction, service, createLogger());
+  assert.deepEqual(response, {
+    content: "Provide a title, description, or position to update",
     ephemeral: true
   });
 });

@@ -61,9 +61,15 @@ function formatContext(result: Awaited<ReturnType<GetProjectContext["execute"]>>
     return [
       `**${result.projectName}**`,
       "Context records: 0",
-      result.ingestion.reason
-        ? "GitHub context is currently unavailable."
-        : "No project context is available yet."
+      ...(result.ingestion.reason
+        ? [
+          `Context refresh: unavailable (${result.ingestion.reason})`,
+          "No Context records are available yet. Retry after GitHub becomes available."
+        ]
+        : [
+          `Context refresh: ${result.ingestion.ingested} ingested, ${result.ingestion.updated} updated`,
+          "No project context is available yet."
+        ])
     ].join("\n");
   }
   const sourceTypes = [...new Set(result.records.map((record) => record.sourceType))];
@@ -74,6 +80,9 @@ function formatContext(result: Awaited<ReturnType<GetProjectContext["execute"]>>
   return [
     `**${result.projectName}**`,
     `Context records: ${result.records.length}`,
+    ...(result.ingestion.reason
+      ? [`Context refresh: unavailable (${result.ingestion.reason}); existing records are shown below.`]
+      : [`Context refresh: ${result.ingestion.ingested} ingested, ${result.ingestion.updated} updated`]),
     `Source types: ${sourceTypes.join(", ")}`,
     "Sources:",
     ...sources

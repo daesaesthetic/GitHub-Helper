@@ -55,7 +55,11 @@ export async function handleRealityCommand(
 
 function formatReality(result: Awaited<ReturnType<GetProjectReality["execute"]>>): string {
   if (result.records.length === 0) {
-    return [`**${result.projectName}**`, "Verified reality facts: 0"].join("\n");
+    return [
+      `**${result.projectName}**`,
+      "Verified reality facts: 0",
+      "No verified Reality facts are configured for this project."
+    ].join("\n");
   }
   const facts = result.records.map((record) => {
     const value = Object.entries(record.value)
