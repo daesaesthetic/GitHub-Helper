@@ -1,7 +1,16 @@
 import { createSign } from "node:crypto";
 import type { GitHubAppConfig } from "../config.js";
 
-export class GitHubAppAuthenticationError extends Error {}
+export type GitHubInstallationFailureKind = "revoked" | "suspended" | "temporary" | "invalid";
+
+export class GitHubAppAuthenticationError extends Error {
+  constructor(
+    message: string,
+    readonly failureKind: GitHubInstallationFailureKind = "invalid"
+  ) {
+    super(message);
+  }
+}
 
 export interface InstallationToken {
   token: string;
@@ -125,9 +134,26 @@ export class GitHubAppAuthenticator {
     } catch {
       throw new GitHubAppAuthenticationError("GitHub App API is unavailable");
     }
-    if (!response.ok) throw new GitHubAppAuthenticationError("GitHub App API request failed");
     let result: unknown;
-    try { result = await response.json(); } catch { throw new GitHubAppAuthenticationError("GitHub App response was invalid"); }
+    try { result = await response.json(); } catch {
+      throw new GitHubAppAuthenticationError(
+        "GitHub App response was invalid",
+        response.ok ? "invalid" : "temporary"
+      );
+    }
+    if (!response.ok) {
+      const message = asObject(result)?.message;
+      const normalized = typeof message === "string" ? message.toLowerCase() : "";
+      const failureKind: GitHubInstallationFailureKind =
+        response.status === 404 || response.status === 410
+          ? "revoked"
+          : normalized.includes("suspend")
+            ? "suspended"
+            : response.status >= 500 || response.status === 408 || response.status === 429
+              ? "temporary"
+              : "invalid";
+      throw new GitHubAppAuthenticationError("GitHub App API request failed", failureKind);
+    }
     const object = asObject(result);
     if (!object) throw new GitHubAppAuthenticationError("GitHub App response was invalid");
     return object;

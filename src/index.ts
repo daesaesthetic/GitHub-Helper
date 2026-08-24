@@ -115,7 +115,11 @@ const githubCredentials = new GitHubCredentialResolver(
   new PostgresGitHubConnectionStore(database),
   new PostgresDiscordAccountStore(database),
   config.github?.token,
-  new GitHubAppAuthenticator(config.githubApp)
+  Object.assign(new GitHubAppAuthenticator(config.githubApp), {
+    onInstallationFailure: async (installationId: number, kind: "revoked" | "suspended") => {
+      await githubConnections.markInstallationStatus(installationId, kind);
+    }
+  })
 );
 projects.setCredentialResolver(githubCredentials);
 const githubApp = new GitHubAppService(

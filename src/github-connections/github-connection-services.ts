@@ -50,6 +50,16 @@ export class GitHubConnectionService {
     const connection = await this.getOwned(id, identity);
     return this.store.upsert({ ...connection, status, updatedAt: new Date().toISOString(), disconnectedAt: status === "active" ? undefined : new Date().toISOString() });
   }
+  async markInstallationStatus(installationId: number, status: "revoked" | "suspended") {
+    const connection = await this.store.findByInstallationId(installationId);
+    if (!connection || connection.status !== "active") return connection;
+    return this.store.upsert({
+      ...connection,
+      status,
+      updatedAt: new Date().toISOString(),
+      disconnectedAt: new Date().toISOString()
+    });
+  }
   async listOwned(identity: RequestIdentity) {
     const account = await this.accounts.findByDiscordUserId(identity.userId);
     return account ? this.store.listByDiscordAccountId(account.id) : [];

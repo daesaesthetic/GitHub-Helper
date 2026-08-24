@@ -30,8 +30,14 @@ export async function handleGitHubCommand(
   try {
     if (interaction.options.getSubcommand() === "status") {
       const result = await app.status(projectId, identity);
+      const lifecycle = result.connection?.status;
+      const lifecycleMessage = lifecycle === "revoked"
+        ? "The connected GitHub installation is no longer available.\nPlease reconnect GitHub to restore access."
+        : lifecycle === "suspended"
+          ? "The connected GitHub installation is currently unavailable."
+          : undefined;
       await interaction.reply({ ephemeral: true, content: result.connection
-        ? [`GitHub connection: ${result.connection.status}`, `Account: ${result.connection.githubAccountLogin ?? "Unknown"}`, result.association ? `Repository: ${result.association.owner}/${result.association.repository}` : "Repository: None"].join("\n")
+        ? [`GitHub connection: ${lifecycle === "active" ? "Active" : lifecycle === "disconnected" ? "Disconnected" : lifecycle === "revoked" ? "Revoked" : "Suspended"}`, lifecycleMessage, `Account: ${result.connection.githubAccountLogin ?? "Unknown"}`, result.association ? `Repository: ${result.association.owner}/${result.association.repository}` : "Repository: None"].filter(Boolean).join("\n")
         : "This project has no user-owned GitHub installation. Development GitHub configuration, if available, is separate." });
       return;
     }

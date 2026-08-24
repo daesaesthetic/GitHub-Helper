@@ -1,6 +1,7 @@
 import type { RequestIdentity } from "../identity.js";
 import type { ProjectService } from "../projects/project-service.js";
 import type { GitHubConnection, ProjectGitHubRepository } from "./github-connection.js";
+import type { GitHubInstallationFailureKind } from "./github-app-authenticator.js";
 import type { DiscordAccountStore, GitHubConnectionStore, ProjectGitHubRepositoryStore } from "./github-connection-store.js";
 
 export type GitHubCredentialSource = "user_owned_connection" | "explicit_project_connection" | "development_token" | "unavailable";
@@ -12,6 +13,7 @@ export interface ResolvedGitHubCredential {
 }
 export interface GitHubInstallationCredentialProvider {
   createInstallationToken(installationId: number): Promise<{ token: string; expiresAt: string }>;
+  onInstallationFailure?: (installationId: number, kind: GitHubInstallationFailureKind) => Promise<void>;
 }
 
 export class GitHubCredentialResolver {
@@ -37,8 +39,21 @@ export class GitHubCredentialResolver {
         if (!connection.installationId) {
           return { source: "unavailable", connection, association };
         }
-        const credential = await this.installations.createInstallationToken(connection.installationId);
-        return { source: "user_owned_connection", token: credential.token, connection, association };
+        try {
+          const credential = await this.installations.createInstallationToken(connection.installationId);
+          return { source: "user_owned_connection", token: credential.token, connection, association };
+        } catch (error) {
+          const kind = error && typeof error === "object" && "failureKind" in error
+            ? (error as { failureKind?: GitHubInstallationFailureKind }).failureKind
+            : undefined;
+          if ((kind === "revoked" || kind === "suspended") && this.installations.onInstallationFailure) {
+            await this.installations.onInstallationFailure(connection.installationId, kind);
+          }
+          if (kind === "revoked" || kind === "suspended") {
+            if (this.developmentToken) return { source: "development_token" as const };
+          }
+          throw error;
+        }
       }
     }
     if (this.developmentToken) return { source: "development_token", token: this.developmentToken };
