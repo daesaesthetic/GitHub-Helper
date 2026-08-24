@@ -88,6 +88,10 @@ export class GitHubRepositoryAssociationService {
     const association = await this.store.findByProjectId(projectId);
     return association ? this.getAuthorized(projectId, identity) : undefined;
   }
+  async findForAuthorizedProject(projectId: string, identity: RequestIdentity) {
+    assertProjectOwner(this.projects, projectId, identity);
+    return this.store.findByProjectId(projectId);
+  }
 }
 
 export class AuthorizationStateService {

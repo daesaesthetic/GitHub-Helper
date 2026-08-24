@@ -110,7 +110,7 @@ export class GitHubAppService {
     this.projects.getAccessibleProject(projectId, identity);
     const connections = await this.connections.listOwned(identity);
     const connection = connections.find((item) => item.status === "active") ?? connections[0];
-    const association = await this._associations.findAuthorized(projectId, identity);
+    const association = await this._associations.findForAuthorizedProject(projectId, identity);
     return { connection, association };
   }
 

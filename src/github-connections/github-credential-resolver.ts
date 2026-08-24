@@ -10,6 +10,9 @@ export interface ResolvedGitHubCredential {
   connection?: GitHubConnection;
   association?: ProjectGitHubRepository;
 }
+export interface GitHubInstallationCredentialProvider {
+  createInstallationToken(installationId: number): Promise<{ token: string; expiresAt: string }>;
+}
 
 export class GitHubCredentialResolver {
   constructor(
@@ -17,7 +20,8 @@ export class GitHubCredentialResolver {
     private readonly associations: ProjectGitHubRepositoryStore,
     private readonly connections: GitHubConnectionStore,
     private readonly accounts: DiscordAccountStore,
-    private readonly developmentToken?: string
+    private readonly developmentToken?: string,
+    private readonly installations?: GitHubInstallationCredentialProvider
   ) {}
 
   async resolve(projectId: string, identity: RequestIdentity): Promise<ResolvedGitHubCredential> {
@@ -27,7 +31,14 @@ export class GitHubCredentialResolver {
     if (account && association) {
       const connection = await this.connections.findById(association.connectionId);
       if (connection?.discordAccountId === account.id && connection.status === "active") {
-        return { source: "user_owned_connection", connection, association };
+        if (!this.installations) {
+          return { source: "user_owned_connection", connection, association };
+        }
+        if (!connection.installationId) {
+          return { source: "unavailable", connection, association };
+        }
+        const credential = await this.installations.createInstallationToken(connection.installationId);
+        return { source: "user_owned_connection", token: credential.token, connection, association };
       }
     }
     if (this.developmentToken) return { source: "development_token", token: this.developmentToken };
