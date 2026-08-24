@@ -604,6 +604,58 @@ test("GitHub configuration loads only when complete", () => {
   );
 });
 
+test("GitHub App configuration requires every setting and normalizes multiline keys", () => {
+  const base = {
+    DISCORD_TOKEN: "test-token",
+    DISCORD_CLIENT_ID: "client-123"
+  };
+  assert.throws(
+    () => loadConfig({ ...base, GITHUB_APP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----" }),
+    (error: unknown) => error instanceof ConfigurationError &&
+      error.message === "Complete GitHub App configuration is required to enable App authorization"
+  );
+  assert.throws(
+    () => loadConfig({
+      ...base,
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: "not-a-private-key",
+      GITHUB_APP_CLIENT_ID: "client",
+      GITHUB_APP_CLIENT_SECRET: "secret",
+      GITHUB_APP_SLUG: "helper",
+      GITHUB_APP_CALLBACK_URL: "https://example.test/github/callback"
+    }),
+    (error: unknown) => error instanceof ConfigurationError &&
+      error.message === "GitHub App private key configuration is invalid"
+  );
+  const config = loadConfig({
+    ...base,
+    GITHUB_APP_ID: "42",
+    GITHUB_APP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----",
+    GITHUB_APP_CLIENT_ID: "client",
+    GITHUB_APP_CLIENT_SECRET: "secret",
+    GITHUB_APP_SLUG: "helper",
+    GITHUB_APP_CALLBACK_URL: "http://localhost:3000/github/callback"
+  });
+  assert.equal(config.githubApp?.appId, 42);
+  assert.equal(config.githubApp?.privateKey, "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----");
+});
+
+test("GitHub App JWT generation uses configured App identity without exposing credentials", () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const authenticator = new GitHubAppAuthenticator({
+    appId: 42,
+    privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+    clientId: "client",
+    clientSecret: "secret",
+    slug: "helper",
+    callbackUrl: "https://example.test/github/callback"
+  });
+  const jwt = authenticator.createAppJwt(1_700_000_000);
+  assert.equal(jwt.split(".").length, 3);
+  assert.equal(Buffer.from(jwt.split(".")[0]!, "base64url").toString(), JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  assert.match(Buffer.from(jwt.split(".")[1]!, "base64url").toString(), /"iss":42/);
+});
+
 test("GitHub client maps successful user and repository responses", async () => {
   const client = new GitHubClient("test-token", (async (input) => {
     const url = String(input);
@@ -1782,6 +1834,23 @@ test("health endpoint responds successfully", async () => {
   const response = await fetch(`http://127.0.0.1:${address.port}/health`);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { status: "ok" });
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+});
+
+test("GitHub callback failures return safe recovery guidance", async () => {
+  const server = startHealthServer(0, createLogger(), {
+    async handle() {
+      throw new Error("private callback details must not be exposed");
+    }
+  });
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const response = await fetch(`http://127.0.0.1:${address.port}/github/callback?code=sample&state=sample`);
+  const body = await response.text();
+  assert.equal(response.status, 400);
+  assert.equal(body, "GitHub authorization could not be completed. Return to Discord and try again.");
+  assert.doesNotMatch(body, /private callback details|sample/);
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 

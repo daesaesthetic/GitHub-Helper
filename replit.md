@@ -39,7 +39,7 @@ When GitHub development configuration is present, it uses the configured credent
 
 The command only exposes safe repository metadata. GitHub credential, headers, raw API errors, and stack traces are never included in Discord responses.
 
-When GitHub is not configured, `/project status` reports **GitHub: Not connected**. Invalid credentials, inaccessible repositories, rate limits, malformed API responses, and network/API failures report a concise **GitHub: Unavailable** state.
+When GitHub is not configured, `/project status` reports **GitHub: Not configured**. Invalid credentials, inaccessible repositories, rate limits, malformed API responses, and network/API failures report a concise **GitHub: Unavailable** state.
 
 The Context Engine adds:
 
@@ -358,4 +358,4 @@ GitHub Activity Intelligence runtime verification completed successfully against
 
 ## Intentionally deferred
 
-Not implemented: GitHub App/OAuth browser onboarding, App configuration, OAuth callback, installation onboarding, token exchange/refresh, Discord GitHub connection commands, repository-selection UI, webhooks, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, automatic milestone detection, percentage progress, milestone reminders, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.
+Deferred: live GitHub App/OAuth browser onboarding remains unverified until the real App configuration and an authorized external installation are supplied. Webhooks, token refresh, repository synchronization, automatic milestone detection, percentage progress, milestone reminders, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations remain intentionally out of scope.
