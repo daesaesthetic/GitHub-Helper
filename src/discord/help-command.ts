@@ -25,6 +25,8 @@ export async function handleHelpCommand(
     "- `/context project` — refresh and inspect repository context",
     "- `/reality project` — verified project facts",
     "- `/intelligence project` — consolidated deterministic summary",
+     "- `/explain project` — grounded explanation when an AI provider is configured",
+     "- `/secrets list` — configured secret metadata only; values are never shown",
     "- `/milestone list|create|update|status|delete` — explicit milestones",
     "- `/github status|repositories|disconnect` — connection management",
     "Use `/github connect` only if GitHub App configuration is later supplied."

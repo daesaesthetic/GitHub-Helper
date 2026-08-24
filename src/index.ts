@@ -51,6 +51,12 @@ import { GetProjectActivity } from "./use-cases/project-activity.js";
 import { GetProjectTrends } from "./use-cases/project-trends.js";
 import { handleProjectAutocomplete } from "./discord/project-autocomplete.js";
 import { extractIdentity } from "./identity.js";
+import { EnvironmentSecretProvider } from "./secrets/secret-provider.js";
+import { GetProjectSecrets } from "./use-cases/project-secrets.js";
+import { secretsCommand, handleSecretsCommand } from "./discord/secrets-command.js";
+import { UnavailableAiService } from "./ai/ai-service.js";
+import { GetProjectExplanation } from "./use-cases/project-explanation.js";
+import { explainCommand, handleExplainCommand } from "./discord/explain-command.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -106,6 +112,8 @@ const intelligence = new ProjectIntelligenceService(
 );
 const getProjectIntelligence = new GetProjectIntelligence(intelligence);
 const getProjectTrends = new GetProjectTrends(intelligence);
+const getProjectSecrets = new GetProjectSecrets(projects, new EnvironmentSecretProvider(projects));
+const getProjectExplanation = new GetProjectExplanation(projects, intelligence, new UnavailableAiService());
 const discordAccounts = new DiscordAccountService(new PostgresDiscordAccountStore(database));
 const githubIdentities = new GitHubIdentityService(new PostgresGitHubIdentityStore(database));
 const githubConnections = new GitHubConnectionService(
@@ -179,7 +187,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
     if (!interaction.isChatInputCommand() ||
-         !["project", "context", "reality", "intelligence", "milestone", "github", "activity", "trends", "help", "setup"].includes(interaction.commandName)) return;
+         !["project", "context", "reality", "intelligence", "milestone", "github", "activity", "trends", "secrets", "explain", "help", "setup"].includes(interaction.commandName)) return;
     if (interaction.commandName === "project") {
       await handleProjectCommand(interaction, getProjectStatus, logger);
     } else if (interaction.commandName === "context") {
@@ -194,6 +202,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleActivityCommand(interaction, getProjectActivity, logger);
     } else if (interaction.commandName === "trends") {
       await handleTrendsCommand(interaction, getProjectTrends, logger);
+    } else if (interaction.commandName === "secrets") {
+      await handleSecretsCommand(interaction, getProjectSecrets, logger);
+    } else if (interaction.commandName === "explain") {
+      await handleExplainCommand(interaction, getProjectExplanation, logger);
     } else if (interaction.commandName === "help") {
       await handleHelpCommand(interaction, ownerId, logger);
     } else if (interaction.commandName === "setup") {
@@ -230,6 +242,8 @@ async function registerCommands(): Promise<void> {
       githubCommand.toJSON(),
       activityCommand.toJSON(),
       trendsCommand.toJSON(),
+      secretsCommand.toJSON(),
+      explainCommand.toJSON(),
       helpCommand.toJSON(),
       setupCommand.toJSON()
     ]
@@ -244,6 +258,8 @@ async function registerCommands(): Promise<void> {
       "github connect/status/repositories/disconnect",
       "activity project",
       "trends project",
+      "secrets list",
+      "explain project",
       "help",
       "setup"
     ]
