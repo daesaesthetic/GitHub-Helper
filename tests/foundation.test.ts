@@ -1363,6 +1363,39 @@ test("project intelligence presents GitHub activity without changing Reality, mi
   assert.match(response, /Latest commit: Add activity intelligence/);
 });
 
+test("project intelligence keeps empty development activity distinct from unavailable activity", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world" };
+  project.integrationReferences = ["github"];
+  const createIntelligence = (activityResponse: Response) => {
+    const github = new GitHubService(new GitHubClient("test-token", (async (input) => {
+      const url = String(input);
+      if (url.endsWith("/user")) return jsonResponse({ login: "octocat", id: 1, html_url: "https://github.com/octocat" });
+      if (url.includes("/commits?") || url.includes("/issues?") || url.includes("/pulls?")) return activityResponse.clone();
+      return repositoryResponse();
+    }) as typeof fetch));
+    const projects = new ProjectService(new InMemoryProjectRepository(project), github);
+    const context = new ContextService(new InMemoryContextStore(), projects);
+    const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+    return new ProjectIntelligenceService(
+      projects, reality, context, undefined, new GitHubActivityService(projects), () => new Date("2026-08-24T05:00:00Z")
+    );
+  };
+
+  const zero = await createIntelligence(jsonArrayResponse([])).getProjectIntelligence(project.id, { userId: ownerId });
+  assert.equal(zero.development.status, "available");
+  assert.equal(zero.development.activity.status, "available");
+  assert.equal(zero.development.activity.recentCommitCount, 0);
+  assert.equal(zero.development.activity.latestCommit, undefined);
+  assert.equal(zero.health.state, "active");
+
+  const unavailable = await createIntelligence(new Response(JSON.stringify({ message: "Server Error" }), { status: 503 }))
+    .getProjectIntelligence(project.id, { userId: ownerId });
+  assert.equal(unavailable.development.status, "available");
+  assert.deepEqual(unavailable.development.activity, { status: "unavailable", reason: "unavailable" });
+  assert.equal(unavailable.health.state, "active");
+});
+
 test("project intelligence enforces project isolation", async () => {
   const projectA = createSeedProject(ownerId);
   const projectB = { ...createSeedProject("owner-456"), id: "intelligence-project-b" };
