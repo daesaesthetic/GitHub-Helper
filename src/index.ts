@@ -54,7 +54,7 @@ import { extractIdentity } from "./identity.js";
 import { EnvironmentSecretProvider } from "./secrets/secret-provider.js";
 import { GetProjectSecrets } from "./use-cases/project-secrets.js";
 import { secretsCommand, handleSecretsCommand } from "./discord/secrets-command.js";
-import { UnavailableAiService } from "./ai/ai-service.js";
+import { MockAiService } from "./ai/ai-service.js";
 import { GetProjectExplanation } from "./use-cases/project-explanation.js";
 import { explainCommand, handleExplainCommand } from "./discord/explain-command.js";
 
@@ -113,7 +113,7 @@ const intelligence = new ProjectIntelligenceService(
 const getProjectIntelligence = new GetProjectIntelligence(intelligence);
 const getProjectTrends = new GetProjectTrends(intelligence);
 const getProjectSecrets = new GetProjectSecrets(projects, new EnvironmentSecretProvider(projects));
-const getProjectExplanation = new GetProjectExplanation(projects, intelligence, new UnavailableAiService());
+const getProjectExplanation = new GetProjectExplanation(projects, intelligence, new MockAiService());
 const discordAccounts = new DiscordAccountService(new PostgresDiscordAccountStore(database));
 const githubIdentities = new GitHubIdentityService(new PostgresGitHubIdentityStore(database));
 const githubConnections = new GitHubConnectionService(

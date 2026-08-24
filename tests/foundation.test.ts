@@ -4,10 +4,17 @@ import { generateKeyPairSync } from "node:crypto";
 import { loadConfig, ConfigurationError } from "../src/config.js";
 import { extractIdentity } from "../src/identity.js";
 import { redactSensitiveText, redactSensitiveValue, containsUnredactedSecretPattern } from "../src/security/secret-redaction.js";
-import { BoundedAiService, AiProviderTimeoutError, UnavailableAiService } from "../src/ai/ai-service.js";
+import {
+  BoundedAiService,
+  AiProviderTimeoutError,
+  MockAiService,
+  UnavailableAiService,
+  type GroundedEvidencePackage
+} from "../src/ai/ai-service.js";
 import { GetProjectExplanation, ProjectEvidenceSelectionError, selectEvidence } from "../src/use-cases/project-explanation.js";
 import { GetProjectSecrets } from "../src/use-cases/project-secrets.js";
 import { handleSecretsCommand } from "../src/discord/secrets-command.js";
+import { handleExplainCommand } from "../src/discord/explain-command.js";
 import { createSeedProject, DEVELOPMENT_PROJECT_ID } from "../src/projects/project.js";
 import {
   InMemoryProjectRepository,
@@ -2240,6 +2247,51 @@ test("AI boundary handles provider failure, empty response, and timeout safely",
   );
 });
 
+test("MockAiService is deterministic, local, and grounded only in supplied evidence", async () => {
+  let networkAttempted = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    networkAttempted = true;
+    throw new Error("Mock AI must not use fetch");
+  }) as typeof fetch;
+  try {
+    const input = sampleEvidence();
+    input.verifiedFacts = [{ factType: "project_status", value: { status: "Development" } }];
+    input.sourceInformation = [{
+      kind: "github",
+      value: { repository: "owner/repository", status: "available" }
+    }];
+    input.uncertainties = ["Milestones are unavailable."];
+    const service = new MockAiService();
+    const first = await service.explain(input);
+    const second = await service.explain(input);
+    assert.deepEqual(first, second);
+    assert.match(first.text, /Mock grounded project explanation \(local test provider\)/);
+    assert.match(first.text, /Development/);
+    assert.match(first.text, /owner\/repository/);
+    assert.match(first.text, /Milestones are unavailable/);
+    assert.doesNotMatch(first.text, /unsupported|fabricated/i);
+    assert.equal(networkAttempted, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("MockAiService handles empty and malformed-safe evidence without inventing facts", async () => {
+  const result = await new MockAiService().explain({
+    projectId: DEVELOPMENT_PROJECT_ID,
+    projectName: "Project",
+    generatedAt: "2026-01-01T00:00:00.000Z",
+    verifiedFacts: [],
+    sourceInformation: [{ malformed: true }],
+    inferences: [],
+    uncertainties: ["Information was unavailable."]
+  });
+  assert.match(result.text, /Verified facts:\n- None available/);
+  assert.match(result.text, /Information was unavailable/);
+  assert.doesNotMatch(result.text, /undefined/);
+});
+
 test("/secrets list exposes only safe metadata and preserves authorization", async () => {
   const provider = {
     async listMetadata() {
@@ -2301,7 +2353,42 @@ test("/secrets list handles an empty provider without exposing provider internal
   });
 });
 
-function sampleEvidence() {
+test("/explain project completes through the local mock command path", async () => {
+  const result = sampleIntelligenceResult({
+    project: { id: DEVELOPMENT_PROJECT_ID, name: "Project", description: "Description" },
+    verifiedFacts: [{
+      id: "fact-1",
+      projectId: DEVELOPMENT_PROJECT_ID,
+      factType: "project_status",
+      value: { status: "Development" },
+      verificationState: "verified"
+    }],
+    supportingEvidence: [{
+      sourceType: "user_authored",
+      sourceIdentity: "decision:1",
+      reference: "https://example.test/decision"
+    }]
+  });
+  const useCase = new GetProjectExplanation(
+    projectService,
+    { async getProjectIntelligence() { return result; } } as never,
+    new MockAiService()
+  );
+  let response: unknown;
+  const interaction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleExplainCommand(interaction, useCase, createLogger());
+  assert.equal((response as { ephemeral: boolean }).ephemeral, true);
+  assert.match((response as { content: string }).content, /Mock grounded project explanation/);
+  assert.match((response as { content: string }).content, /Development/);
+});
+
+function sampleEvidence(): GroundedEvidencePackage {
   return {
     projectId: DEVELOPMENT_PROJECT_ID,
     projectName: "Project",
