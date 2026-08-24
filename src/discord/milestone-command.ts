@@ -9,7 +9,8 @@ import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/proj
 import {
   CurrentMilestoneConflictError,
   MilestoneNotFoundError,
-  MilestoneService
+  MilestoneService,
+  MilestoneValidationError
 } from "../milestones/milestone-service.js";
 import type { Logger } from "../logging.js";
 
@@ -102,7 +103,7 @@ export async function handleMilestoneCommand(
       const description = interaction.options.getString("description") ?? undefined;
       const position = interaction.options.getInteger("position") ?? undefined;
       if (title === undefined && description === undefined && position === undefined) {
-        throw new Error("No milestone changes were provided");
+        throw new MilestoneValidationError("Provide a title, description, or position to update");
       }
       const milestone = await milestones.update(
         interaction.options.getString("id", true),
@@ -131,6 +132,8 @@ export async function handleMilestoneCommand(
           ? "That milestone could not be found."
           : error instanceof CurrentMilestoneConflictError
             ? "This project already has a current milestone."
+              : error instanceof MilestoneValidationError
+                ? error.message
             : "Unable to manage project milestones right now.";
     logger.error("command.failed", {
       command: `milestone.${action}`,

@@ -2,7 +2,8 @@ import { ChatInputCommandInteraction, StringSelectMenuBuilder, ActionRowBuilder,
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import { extractIdentity } from "../identity.js";
 import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/project-service.js";
-import { GitHubAppConfigurationError, GitHubAppService } from "../github-connections/github-app-service.js";
+import { GitHubAppAuthenticationError, GitHubAppConfigurationError, GitHubAppService } from "../github-connections/github-app-service.js";
+import { GitHubConnectionNotFoundError } from "../github-connections/github-connection.js";
 import type { Logger } from "../logging.js";
 
 export const githubCommand = new SlashCommandBuilder()
@@ -27,8 +28,9 @@ export async function handleGitHubCommand(
 ): Promise<void> {
   const identity = extractIdentity(interaction);
   const projectId = interaction.options.getString("project") ?? DEVELOPMENT_PROJECT_ID;
+  const action = interaction.options.getSubcommand();
   try {
-    if (interaction.options.getSubcommand() === "status") {
+    if (action === "status") {
       const result = await app.status(projectId, identity);
       const lifecycle = result.connection?.status;
       const lifecycleMessage = lifecycle === "revoked"
@@ -38,15 +40,15 @@ export async function handleGitHubCommand(
           : undefined;
       await interaction.reply({ ephemeral: true, content: result.connection
         ? [`GitHub connection: ${lifecycle === "active" ? "Active" : lifecycle === "disconnected" ? "Disconnected" : lifecycle === "revoked" ? "Revoked" : "Suspended"}`, lifecycleMessage, `Account: ${result.connection.githubAccountLogin ?? "Unknown"}`, result.association ? `Repository: ${result.association.owner}/${result.association.repository}` : "Repository: None"].filter(Boolean).join("\n")
-        : "This project has no user-owned GitHub installation. Development GitHub configuration, if available, is separate." });
+        : "No user-owned GitHub installation is connected. Use /github connect when GitHub App authorization is available. Development GitHub configuration, if available, is separate." });
       return;
     }
-    if (interaction.options.getSubcommand() === "disconnect") {
+    if (action === "disconnect") {
       const disconnected = await app.disconnect(identity);
       await interaction.reply({ ephemeral: true, content: disconnected ? "Your GitHub installation was disconnected. Existing project data was preserved." : "No user-owned GitHub installation is connected." });
       return;
     }
-    if (interaction.options.getSubcommand() === "repositories") {
+    if (action === "repositories") {
       const result = await app.discoverRepositories(projectId, identity);
       if (!result.repositories.length) {
         await interaction.reply({ ephemeral: true, content: "No repositories are accessible through the connected GitHub installation." });
@@ -56,7 +58,9 @@ export async function handleGitHubCommand(
         .setCustomId(`github.repositories:${projectId}:${result.connection.id}`)
         .setPlaceholder("Select a repository")
         .addOptions(result.repositories.slice(0, 25).map((repo) => ({ label: repo.fullName.slice(0, 100), value: String(repo.id), description: repo.private ? "Private repository" : "Public repository" })));
-      await interaction.reply({ ephemeral: true, content: "Select the repository to associate with this project:", components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
+      await interaction.reply({ ephemeral: true, content: result.repositories.length > 25
+        ? "Showing the first 25 accessible repositories. Select one to associate with this project:"
+        : "Select the repository to associate with this project:", components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
       return;
     }
     const url = await app.createConnectUrl(projectId, identity);
@@ -68,17 +72,33 @@ export async function handleGitHubCommand(
         "Return to Discord after GitHub confirms the connection."
       ].join("\n")
     });
-    logger.info("command.completed", { command: "github.connect", userId: identity.userId, projectId });
+    logger.info("command.completed", { command: `github.${action}`, userId: identity.userId, projectId });
   } catch (error) {
     const message = error instanceof ProjectAccessDeniedError
       ? "You are not authorized to connect GitHub for this project."
       : error instanceof ProjectNotFoundError
         ? "That project could not be found."
-        : error instanceof GitHubAppConfigurationError
-          ? "GitHub App connections are not configured yet. Existing development GitHub access is unchanged."
-          : "Unable to start GitHub authorization right now.";
+      : error instanceof GitHubAppConfigurationError
+        ? "User-owned GitHub connections are not configured yet. Use /github connect after the GitHub App is configured. Existing development GitHub access is unchanged."
+        : error instanceof GitHubConnectionNotFoundError
+          ? action === "repositories"
+            ? "Your GitHub connection is not active. Reconnect with /github connect before discovering repositories."
+            : action === "disconnect"
+              ? "No active user-owned GitHub connection was found."
+              : "The requested GitHub connection was not found."
+          : error instanceof GitHubAppAuthenticationError
+            ? error.failureKind === "revoked"
+              ? "Your GitHub installation is no longer available. Reconnect with /github connect."
+              : error.failureKind === "suspended"
+                ? "GitHub has suspended this installation. Reconnecting may not resolve the underlying suspension."
+                : "GitHub is temporarily unavailable. Please try again later."
+            : action === "repositories"
+              ? "Unable to discover repositories right now. Please try again later."
+              : action === "disconnect"
+                ? "Unable to disconnect the GitHub connection right now. Please try again later."
+                : "Unable to start GitHub authorization right now.";
     logger.error("command.failed", {
-      command: "github.connect",
+      command: `github.${action}`,
       userId: identity.userId,
       projectId,
       error: error instanceof Error ? error.name : "UnknownError"

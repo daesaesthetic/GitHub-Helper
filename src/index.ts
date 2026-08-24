@@ -147,13 +147,13 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("github.repositories:")) {
-    await handleGitHubRepositorySelection(interaction, githubApp, logger);
-    return;
-  }
-  if (!interaction.isChatInputCommand() ||
-       !["project", "context", "reality", "intelligence", "milestone", "github"].includes(interaction.commandName)) return;
   try {
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith("github.repositories:")) {
+      await handleGitHubRepositorySelection(interaction, githubApp, logger);
+      return;
+    }
+    if (!interaction.isChatInputCommand() ||
+         !["project", "context", "reality", "intelligence", "milestone", "github"].includes(interaction.commandName)) return;
     if (interaction.commandName === "project") {
       await handleProjectCommand(interaction, getProjectStatus, logger);
     } else if (interaction.commandName === "context") {
@@ -173,7 +173,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       error: error instanceof Error ? error.name : "UnknownError"
     });
     if (interaction.isRepliable() && !interaction.replied) {
-      await interaction.reply({ content: "An unexpected error occurred.", ephemeral: true });
+      await interaction.reply({
+        content: "The command could not be completed safely. Please try again. If the problem continues, check /health.",
+        ephemeral: true
+      });
     }
   }
 });
@@ -197,7 +200,7 @@ async function registerCommands(): Promise<void> {
       "reality project",
       "intelligence project",
       "milestone list/create/update/status/delete",
-      "github connect"
+      "github connect/status/repositories/disconnect"
     ]
   });
 }
