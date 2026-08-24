@@ -111,8 +111,8 @@ const githubApp = new GitHubAppService(
   githubAuthorization,
   githubConnections,
   githubAssociations,
-  projects
-  , fetch,
+  projects,
+  fetch,
   new GitHubAppAuthenticator(config.githubApp)
 );
 const healthServer = startHealthServer(config.port, logger, {

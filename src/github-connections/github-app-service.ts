@@ -6,6 +6,7 @@ import {
   GitHubConnectionService,
   GitHubRepositoryAssociationService
 } from "./github-connection-services.js";
+import { GitHubAppAuthenticator } from "./github-app-authenticator.js";
 
 export class GitHubAppConfigurationError extends Error {}
 
@@ -25,7 +26,8 @@ export class GitHubAppService {
     private readonly connections: GitHubConnectionService,
     private readonly _associations: GitHubRepositoryAssociationService,
     private readonly projects: ProjectService,
-    private readonly fetcher: typeof fetch = fetch
+    private readonly fetcher: typeof fetch = fetch,
+    private readonly authenticator = new GitHubAppAuthenticator(config, fetcher)
   ) {}
 
   async createConnectUrl(projectId: string, identity: RequestIdentity): Promise<string> {
@@ -52,6 +54,11 @@ export class GitHubAppService {
     const token = await this.exchangeCode(code);
     const client = (await import("../github/github-client.js")).GitHubClient;
     const user = await new client(token, this.fetcher).getAuthenticatedUser();
+    const installationId = Number(params.get("installation_id"));
+    if (!Number.isSafeInteger(installationId) || installationId < 1) {
+      throw new Error("Missing GitHub installation");
+    }
+    const installation = await this.authenticator.getInstallation(installationId);
     const account = await this.authorization.getAccount(state.discordAccountId);
     if (!account) throw new Error("Authorization account was not found");
     await this.connections.connect({
@@ -59,8 +66,12 @@ export class GitHubAppService {
       discordUserId: account.discordUserId,
       githubUserId: user.id,
       login: user.login,
-      installationId: params.get("installation_id") ? Number(params.get("installation_id")) : undefined,
-      permissionState: "unknown"
+      installationId,
+      githubAccountId: installation.accountId,
+      githubAccountLogin: installation.accountLogin,
+      githubAccountType: installation.accountType,
+      permissionState: "read_only",
+      status: "active"
     });
     return { projectId: state.projectId, login: user.login };
   }
