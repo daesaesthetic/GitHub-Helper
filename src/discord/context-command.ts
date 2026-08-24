@@ -7,6 +7,7 @@ import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundErr
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import type { Logger } from "../logging.js";
 import { GetProjectContext } from "../use-cases/project-context.js";
+import { setProjectAutocomplete } from "./project-autocomplete.js";
 
 export const contextCommand = new SlashCommandBuilder()
   .setName("context")
@@ -15,12 +16,7 @@ export const contextCommand = new SlashCommandBuilder()
     subcommand
       .setName("project")
       .setDescription("View project context sources")
-      .addStringOption((option) =>
-        option
-          .setName("project")
-           .setDescription("Project ID or name to inspect")
-           .setRequired(true)
-      )
+       .addStringOption((option) => setProjectAutocomplete(option, "Project ID or name to inspect"))
   );
 
 export async function handleContextCommand(

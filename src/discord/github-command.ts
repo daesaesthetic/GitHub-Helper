@@ -6,6 +6,7 @@ import { GitHubAppConfigurationError, GitHubAppService } from "../github-connect
 import { GitHubConnectionNotFoundError } from "../github-connections/github-connection.js";
 import { GitHubAppAuthenticationError } from "../github-connections/github-app-authenticator.js";
 import type { Logger } from "../logging.js";
+import { setProjectAutocomplete } from "./project-autocomplete.js";
 
 export const githubCommand = new SlashCommandBuilder()
   .setName("github")
@@ -13,12 +14,9 @@ export const githubCommand = new SlashCommandBuilder()
   .addSubcommand((subcommand) => subcommand
     .setName("connect")
     .setDescription("Start a secure GitHub App connection")
-    .addStringOption((option) => option
-      .setName("project")
-       .setDescription("Project ID or name to connect")
-       .setRequired(true)));
-githubCommand.addSubcommand((subcommand) => subcommand.setName("status").setDescription("View GitHub connection status").addStringOption((option) => option.setName("project").setDescription("Project ID or name").setRequired(true)));
-githubCommand.addSubcommand((subcommand) => subcommand.setName("repositories").setDescription("Choose an accessible GitHub repository").addStringOption((option) => option.setName("project").setDescription("Project ID or name").setRequired(true)));
+     .addStringOption((option) => setProjectAutocomplete(option, "Project ID or name to connect")));
+githubCommand.addSubcommand((subcommand) => subcommand.setName("status").setDescription("View GitHub connection status").addStringOption((option) => setProjectAutocomplete(option)));
+githubCommand.addSubcommand((subcommand) => subcommand.setName("repositories").setDescription("Choose an accessible GitHub repository").addStringOption((option) => setProjectAutocomplete(option)));
 githubCommand.addSubcommand((subcommand) => subcommand.setName("disconnect").setDescription("Disconnect your user-owned GitHub installation"));
 
 export async function handleGitHubCommand(

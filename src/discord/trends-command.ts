@@ -4,6 +4,7 @@ import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundErr
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import { GetProjectTrends } from "../use-cases/project-trends.js";
 import type { Logger } from "../logging.js";
+import { setProjectAutocomplete } from "./project-autocomplete.js";
 
 export const trendsCommand = new SlashCommandBuilder()
   .setName("trends")
@@ -11,10 +12,7 @@ export const trendsCommand = new SlashCommandBuilder()
   .addSubcommand((subcommand) => subcommand
     .setName("project")
     .setDescription("View observed GitHub trends for the last 30 days")
-    .addStringOption((option) => option
-      .setName("project")
-       .setDescription("Project ID or name to inspect")
-      .setRequired(true)));
+     .addStringOption((option) => setProjectAutocomplete(option, "Project ID or name to inspect")));
 
 export async function handleTrendsCommand(
   interaction: ChatInputCommandInteraction,

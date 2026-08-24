@@ -49,6 +49,8 @@ import { helpCommand, handleHelpCommand } from "./discord/help-command.js";
 import { setupCommand, handleSetupCommand } from "./discord/setup-command.js";
 import { GetProjectActivity } from "./use-cases/project-activity.js";
 import { GetProjectTrends } from "./use-cases/project-trends.js";
+import { handleProjectAutocomplete } from "./discord/project-autocomplete.js";
+import { extractIdentity } from "./identity.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -165,6 +167,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       ? "github.repositories.select"
       : "interaction";
   try {
+    if (interaction.isAutocomplete()) {
+      if (["project", "context", "reality", "intelligence", "milestone", "github", "activity", "trends"]
+        .includes(interaction.commandName)) {
+        await handleProjectAutocomplete(interaction, projects, extractIdentity(interaction));
+      }
+      return;
+    }
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith("github.repositories:")) {
       await handleGitHubRepositorySelection(interaction, githubApp, logger);
       return;

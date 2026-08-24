@@ -7,6 +7,7 @@ import { GetProjectStatus } from "../use-cases/project-status.js";
 import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundError } from "../projects/project-service.js";
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import type { Logger } from "../logging.js";
+import { setProjectAutocomplete } from "./project-autocomplete.js";
 
 export const projectStatusCommand = new SlashCommandBuilder()
   .setName("project")
@@ -15,7 +16,7 @@ export const projectStatusCommand = new SlashCommandBuilder()
     subcommand
       .setName("status")
       .setDescription("View project status")
-       .addStringOption((option) => option.setName("project").setDescription("Project ID or name").setRequired(true))
+        .addStringOption((option) => setProjectAutocomplete(option))
    )
   .addSubcommand((subcommand) =>
     subcommand.setName("list").setDescription("List your projects")

@@ -13,6 +13,7 @@ import {
 } from "../milestones/milestone-service.js";
 import { MilestoneValidationError } from "../milestones/milestone.js";
 import type { Logger } from "../logging.js";
+import { setProjectAutocomplete } from "./project-autocomplete.js";
 
 const statuses = [
   { name: "Current", value: "current" },
@@ -21,11 +22,7 @@ const statuses = [
 ] as const;
 
 function projectOption(option: SlashCommandStringOption): SlashCommandStringOption {
-  return option
-    .setName("project")
-    .setDescription("Project ID or name to manage")
-    .setRequired(true)
-    .addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID });
+  return setProjectAutocomplete(option, "Project ID or name to manage");
 }
 
 export const milestoneCommand = new SlashCommandBuilder()

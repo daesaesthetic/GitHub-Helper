@@ -4,6 +4,7 @@ import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundErr
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import { GetProjectActivity } from "../use-cases/project-activity.js";
 import type { Logger } from "../logging.js";
+import { setProjectAutocomplete } from "./project-autocomplete.js";
 
 export const activityCommand = new SlashCommandBuilder()
   .setName("activity")
@@ -11,10 +12,7 @@ export const activityCommand = new SlashCommandBuilder()
   .addSubcommand((subcommand) => subcommand
     .setName("project")
     .setDescription("View recent commits, issues, and pull requests")
-    .addStringOption((option) => option
-      .setName("project")
-       .setDescription("Project ID or name to inspect")
-      .setRequired(true)));
+     .addStringOption((option) => setProjectAutocomplete(option, "Project ID or name to inspect")));
 
 export async function handleActivityCommand(
   interaction: ChatInputCommandInteraction,

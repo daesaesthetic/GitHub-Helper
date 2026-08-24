@@ -4,6 +4,7 @@ import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundErr
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import type { Logger } from "../logging.js";
 import { GetProjectReality } from "../use-cases/project-reality.js";
+import { setProjectAutocomplete } from "./project-autocomplete.js";
 
 export const realityCommand = new SlashCommandBuilder()
   .setName("reality")
@@ -12,12 +13,7 @@ export const realityCommand = new SlashCommandBuilder()
     subcommand
       .setName("project")
       .setDescription("View verified project state")
-      .addStringOption((option) =>
-        option
-          .setName("project")
-           .setDescription("Project ID or name to inspect")
-           .setRequired(true)
-      )
+       .addStringOption((option) => setProjectAutocomplete(option, "Project ID or name to inspect"))
   );
 
 export async function handleRealityCommand(

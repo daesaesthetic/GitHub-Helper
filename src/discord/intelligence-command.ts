@@ -4,6 +4,7 @@ import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundErr
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import type { Logger } from "../logging.js";
 import { GetProjectIntelligence } from "../use-cases/project-intelligence.js";
+import { setProjectAutocomplete } from "./project-autocomplete.js";
 
 export const intelligenceCommand = new SlashCommandBuilder()
   .setName("intelligence")
@@ -12,12 +13,7 @@ export const intelligenceCommand = new SlashCommandBuilder()
     subcommand
       .setName("project")
       .setDescription("View project intelligence")
-      .addStringOption((option) =>
-        option
-          .setName("project")
-           .setDescription("Project ID or name to inspect")
-           .setRequired(true)
-      )
+       .addStringOption((option) => setProjectAutocomplete(option, "Project ID or name to inspect"))
   );
 
 export async function handleIntelligenceCommand(
