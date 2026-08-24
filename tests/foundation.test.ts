@@ -887,6 +887,40 @@ test("GitHub-backed project status returns repository metadata", async () => {
   assert.equal(status.github?.connected && status.github.repository.fullName, "octocat/hello-world");
 });
 
+test("GitHub project creation accepts a repository URL", async () => {
+  const ownerId = "owner-123";
+  const project = createSeedProject(ownerId);
+  const projects = new InMemoryProjectRepository(project);
+  const github = new GitHubService(new GitHubClient("token", async (input) => {
+    const path = new URL(String(input)).pathname;
+    return new Response(JSON.stringify(path === "/user"
+      ? { login: "daesaesthetic", id: 102863139, html_url: "https://github.com/daesaesthetic" }
+      : {
+          id: 12345,
+          full_name: "daesaesthetic/Zekhet",
+          private: true,
+          default_branch: "main",
+          html_url: "https://github.com/daesaesthetic/Zekhet",
+          archived: false,
+          disabled: false,
+          updated_at: "2026-08-24T00:00:00Z"
+        }), { status: 200 });
+  }));
+  const service = new ProjectService(projects, github);
+  service.setCredentialResolver({
+    resolveForIdentity: async () => "token"
+  } as never);
+
+  const created = await service.createGitHubProject({
+    owner: "daesaesthetic",
+    repository: "https://github.com/daesaesthetic/Zekhet",
+    name: "Zekhet"
+  }, { userId: ownerId });
+
+  assert.equal(created.integrations.github?.owner, "daesaesthetic");
+  assert.equal(created.integrations.github?.repository, "Zekhet");
+});
+
 test("/project status returns expected project information", async () => {
   let response = "";
   const interaction = {

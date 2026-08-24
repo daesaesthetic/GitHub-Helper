@@ -1,0 +1,1 @@
+- [Discord input normalization](discord-input-normalization.md) — accept common pasted GitHub URLs and store canonical repository references.

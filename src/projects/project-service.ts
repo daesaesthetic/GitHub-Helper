@@ -90,7 +90,8 @@ export class ProjectService {
     identity: RequestIdentity
   ): Promise<Project> {
     if (!this.github || !this.credentials) throw new Error("GitHub development access is not configured");
-    const projectId = `github-${input.owner}-${input.repository}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+    const reference = normalizeGitHubRepositoryInput(input.owner, input.repository);
+    const projectId = `github-${reference.owner}-${reference.repository}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
     const existing = this.repository.findById(projectId);
     if (existing) {
       if (existing.ownerId !== identity.userId) throw new ProjectAccessDeniedError("Project is owned by another user");
@@ -98,8 +99,8 @@ export class ProjectService {
     }
     const credential = await this.credentials.resolveForIdentity(identity);
     const status = await this.github.withCredential(credential).getRepositoryStatus({
-      owner: input.owner,
-      repository: input.repository
+      owner: reference.owner,
+      repository: reference.repository
     });
     if (!status.connected) throw new Error(`GitHub repository is ${status.reason}`);
     return this.createProject({
@@ -108,8 +109,8 @@ export class ProjectService {
       description: `GitHub project for ${status.repository.fullName}.`,
       ownerId: identity.userId,
       github: {
-        owner: input.owner,
-        repository: input.repository,
+        owner: reference.owner,
+        repository: reference.repository,
         repositoryId: String(status.repository.id)
       }
     }, identity);
@@ -176,4 +177,36 @@ export class ProjectService {
       : project.integrations.github;
     return reference ? { github: this.github.withCredential(credential.token), reference } : undefined;
   }
+}
+
+function normalizeGitHubRepositoryInput(ownerInput: string, repositoryInput: string): {
+  owner: string;
+  repository: string;
+} {
+  const owner = ownerInput.trim();
+  const repositoryValue = repositoryInput.trim();
+  if (!owner || !repositoryValue) throw new Error("GitHub owner and repository are required");
+
+  let repository = repositoryValue;
+  if (/^https?:\/\/github\.com\//i.test(repositoryValue)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(repositoryValue);
+    } catch {
+      throw new Error("GitHub repository URL is invalid");
+    }
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parsed.hostname.toLowerCase() !== "github.com" || parts.length !== 2) {
+      throw new Error("GitHub repository URL must be https://github.com/{owner}/{repository}");
+    }
+    if (parts[0].toLowerCase() !== owner.toLowerCase()) {
+      throw new Error("GitHub repository URL owner does not match the owner field");
+    }
+    repository = parts[1];
+  }
+  repository = repository.replace(/\.git$/i, "").replace(/\/+$/, "");
+  if (!/^[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error("GitHub repository name is invalid");
+  }
+  return { owner, repository };
 }
