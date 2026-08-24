@@ -29,6 +29,17 @@ import {
 import { MilestoneService } from "./milestones/milestone-service.js";
 import { PostgresMilestoneStore } from "./milestones/milestone-store.js";
 import { milestoneCommand, handleMilestoneCommand } from "./discord/milestone-command.js";
+import { githubCommand, handleGitHubCommand } from "./discord/github-command.js";
+import {
+  PostgresDiscordAccountStore, PostgresGitHubAuthorizationStateStore,
+  PostgresGitHubConnectionStore, PostgresGitHubIdentityStore,
+  PostgresProjectGitHubRepositoryStore
+} from "./github-connections/github-connection-store.js";
+import {
+  AuthorizationStateService, DiscordAccountService, GitHubConnectionService,
+  GitHubIdentityService, GitHubRepositoryAssociationService
+} from "./github-connections/github-connection-services.js";
+import { GitHubAppService } from "./github-connections/github-app-service.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -77,7 +88,39 @@ const intelligence = new ProjectIntelligenceService(
   activity
 );
 const getProjectIntelligence = new GetProjectIntelligence(intelligence);
-const healthServer = startHealthServer(config.port, logger);
+const discordAccounts = new DiscordAccountService(new PostgresDiscordAccountStore(database));
+const githubIdentities = new GitHubIdentityService(new PostgresGitHubIdentityStore(database));
+const githubConnections = new GitHubConnectionService(
+  new PostgresGitHubConnectionStore(database),
+  discordAccounts,
+  githubIdentities
+);
+const githubAssociations = new GitHubRepositoryAssociationService(
+  new PostgresProjectGitHubRepositoryStore(database),
+  new PostgresGitHubConnectionStore(database),
+  discordAccounts,
+  projects
+);
+const githubAuthorization = new AuthorizationStateService(
+  new PostgresGitHubAuthorizationStateStore(database),
+  discordAccounts
+);
+const githubApp = new GitHubAppService(
+  config.githubApp,
+  githubAuthorization,
+  githubConnections,
+  githubAssociations,
+  projects
+);
+const healthServer = startHealthServer(config.port, logger, {
+  async handle(url) {
+    const completed = await githubApp.completeCallback(url.searchParams);
+    return {
+      status: 200,
+      body: `GitHub account ${completed.login} connected successfully. Return to Discord.`
+    };
+  }
+});
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 client.once(Events.ClientReady, (readyClient) => {
@@ -86,7 +129,7 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand() ||
-      !["project", "context", "reality", "intelligence", "milestone"].includes(interaction.commandName)) return;
+       !["project", "context", "reality", "intelligence", "milestone", "github"].includes(interaction.commandName)) return;
   try {
     if (interaction.commandName === "project") {
       await handleProjectCommand(interaction, getProjectStatus, logger);
@@ -96,6 +139,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleRealityCommand(interaction, getProjectReality, logger);
     } else if (interaction.commandName === "milestone") {
       await handleMilestoneCommand(interaction, milestones, logger);
+    } else if (interaction.commandName === "github") {
+      await handleGitHubCommand(interaction, githubApp, logger);
     } else {
       await handleIntelligenceCommand(interaction, getProjectIntelligence, logger);
     }
@@ -118,7 +163,8 @@ async function registerCommands(): Promise<void> {
       contextCommand.toJSON(),
       realityCommand.toJSON(),
       intelligenceCommand.toJSON(),
-      milestoneCommand.toJSON()
+      milestoneCommand.toJSON(),
+      githubCommand.toJSON()
     ]
   });
   logger.info("discord.commands_registered", {
@@ -127,7 +173,8 @@ async function registerCommands(): Promise<void> {
       "context project",
       "reality project",
       "intelligence project",
-      "milestone list/create/update/status/delete"
+      "milestone list/create/update/status/delete",
+      "github connect"
     ]
   });
 }
