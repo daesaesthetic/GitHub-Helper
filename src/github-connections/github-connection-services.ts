@@ -50,6 +50,10 @@ export class GitHubConnectionService {
     const connection = await this.getOwned(id, identity);
     return this.store.upsert({ ...connection, status, updatedAt: new Date().toISOString(), disconnectedAt: status === "active" ? undefined : new Date().toISOString() });
   }
+  async listOwned(identity: RequestIdentity) {
+    const account = await this.accounts.findByDiscordUserId(identity.userId);
+    return account ? this.store.listByDiscordAccountId(account.id) : [];
+  }
 }
 
 export class GitHubRepositoryAssociationService {
@@ -78,6 +82,11 @@ export class GitHubRepositoryAssociationService {
       throw new GitHubConnectionAccessDeniedError("Project GitHub connection access denied");
     }
     return { association, connection };
+  }
+  async findAuthorized(projectId: string, identity: RequestIdentity) {
+    assertProjectOwner(this.projects, projectId, identity);
+    const association = await this.store.findByProjectId(projectId);
+    return association ? this.getAuthorized(projectId, identity) : undefined;
   }
 }
 

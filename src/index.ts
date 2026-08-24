@@ -29,7 +29,7 @@ import {
 import { MilestoneService } from "./milestones/milestone-service.js";
 import { PostgresMilestoneStore } from "./milestones/milestone-store.js";
 import { milestoneCommand, handleMilestoneCommand } from "./discord/milestone-command.js";
-import { githubCommand, handleGitHubCommand } from "./discord/github-command.js";
+import { githubCommand, handleGitHubCommand, handleGitHubRepositorySelection } from "./discord/github-command.js";
 import {
   PostgresDiscordAccountStore, PostgresGitHubAuthorizationStateStore,
   PostgresGitHubConnectionStore, PostgresGitHubIdentityStore,
@@ -131,6 +131,10 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("github.repositories:")) {
+    await handleGitHubRepositorySelection(interaction, githubApp, logger);
+    return;
+  }
   if (!interaction.isChatInputCommand() ||
        !["project", "context", "reality", "intelligence", "milestone", "github"].includes(interaction.commandName)) return;
   try {

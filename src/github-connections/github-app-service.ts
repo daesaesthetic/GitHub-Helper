@@ -7,6 +7,7 @@ import {
   GitHubRepositoryAssociationService
 } from "./github-connection-services.js";
 import { GitHubAppAuthenticator } from "./github-app-authenticator.js";
+import { GitHubConnectionNotFoundError } from "./github-connection.js";
 
 export class GitHubAppConfigurationError extends Error {}
 
@@ -74,6 +75,51 @@ export class GitHubAppService {
       status: "active"
     });
     return { projectId: state.projectId, login: user.login };
+  }
+
+  async discoverRepositories(projectId: string, identity: RequestIdentity) {
+    this.projects.getAccessibleProject(projectId, identity);
+    const connection = (await this.connections.listOwned(identity))
+      .find((item) => item.status === "active" && item.installationId !== undefined);
+    if (!connection?.installationId) throw new GitHubConnectionNotFoundError("No active GitHub installation is connected");
+    return { connection, repositories: await this.authenticator.listRepositories(connection.installationId) };
+  }
+
+  async selectRepository(projectId: string, connectionId: string, repositoryId: number, identity: RequestIdentity) {
+    this.projects.getAccessibleProject(projectId, identity);
+    const connection = await this.connections.getOwned(connectionId, identity);
+    if (connection.status !== "active" || connection.installationId === undefined) {
+      throw new GitHubConnectionNotFoundError("GitHub installation is not active");
+    }
+    const repositories = await this.authenticator.listRepositories(connection.installationId);
+    const repository = repositories.find((item) => item.id === repositoryId);
+    if (!repository) throw new GitHubConnectionNotFoundError("Repository is not accessible through this installation");
+    return this._associations.associate({
+      id: `project-repository:${projectId}`,
+      projectId,
+      connectionId,
+      repositoryId: repository.id,
+      owner: repository.owner,
+      repository: repository.name,
+      repositoryUrl: repository.htmlUrl,
+      status: "active"
+    }, identity);
+  }
+
+  async status(projectId: string, identity: RequestIdentity) {
+    this.projects.getAccessibleProject(projectId, identity);
+    const connections = await this.connections.listOwned(identity);
+    const connection = connections.find((item) => item.status === "active") ?? connections[0];
+    const association = await this._associations.findAuthorized(projectId, identity);
+    return { connection, association };
+  }
+
+  async disconnect(identity: RequestIdentity) {
+    const connection = (await this.connections.listOwned(identity))
+      .find((item) => item.status === "active");
+    if (!connection) return false;
+    await this.connections.setStatus(connection.id, "disconnected", identity);
+    return true;
   }
 
   private async exchangeCode(code: string): Promise<string> {

@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
+import { ChatInputCommandInteraction, StringSelectMenuBuilder, ActionRowBuilder, SlashCommandBuilder } from "discord.js";
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import { extractIdentity } from "../identity.js";
 import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/project-service.js";
@@ -16,6 +16,9 @@ export const githubCommand = new SlashCommandBuilder()
       .setDescription("Project to connect")
       .setRequired(true)
       .addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID })));
+githubCommand.addSubcommand((subcommand) => subcommand.setName("status").setDescription("View GitHub connection status").addStringOption((option) => option.setName("project").setDescription("Project").setRequired(true).addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID })));
+githubCommand.addSubcommand((subcommand) => subcommand.setName("repositories").setDescription("Choose an accessible GitHub repository").addStringOption((option) => option.setName("project").setDescription("Project").setRequired(true).addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID })));
+githubCommand.addSubcommand((subcommand) => subcommand.setName("disconnect").setDescription("Disconnect your user-owned GitHub installation"));
 
 export async function handleGitHubCommand(
   interaction: ChatInputCommandInteraction,
@@ -23,8 +26,33 @@ export async function handleGitHubCommand(
   logger: Logger
 ): Promise<void> {
   const identity = extractIdentity(interaction);
-  const projectId = interaction.options.getString("project", true);
+  const projectId = interaction.options.getString("project") ?? DEVELOPMENT_PROJECT_ID;
   try {
+    if (interaction.options.getSubcommand() === "status") {
+      const result = await app.status(projectId, identity);
+      await interaction.reply({ ephemeral: true, content: result.connection
+        ? [`GitHub connection: ${result.connection.status}`, `Account: ${result.connection.githubAccountLogin ?? "Unknown"}`, result.association ? `Repository: ${result.association.owner}/${result.association.repository}` : "Repository: None"].join("\n")
+        : "This project has no user-owned GitHub installation. Development GitHub configuration, if available, is separate." });
+      return;
+    }
+    if (interaction.options.getSubcommand() === "disconnect") {
+      const disconnected = await app.disconnect(identity);
+      await interaction.reply({ ephemeral: true, content: disconnected ? "Your GitHub installation was disconnected. Existing project data was preserved." : "No user-owned GitHub installation is connected." });
+      return;
+    }
+    if (interaction.options.getSubcommand() === "repositories") {
+      const result = await app.discoverRepositories(projectId, identity);
+      if (!result.repositories.length) {
+        await interaction.reply({ ephemeral: true, content: "No repositories are accessible through the connected GitHub installation." });
+        return;
+      }
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId(`github.repositories:${projectId}:${result.connection.id}`)
+        .setPlaceholder("Select a repository")
+        .addOptions(result.repositories.slice(0, 25).map((repo) => ({ label: repo.fullName.slice(0, 100), value: String(repo.id), description: repo.private ? "Private repository" : "Public repository" })));
+      await interaction.reply({ ephemeral: true, content: "Select the repository to associate with this project:", components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)] });
+      return;
+    }
     const url = await app.createConnectUrl(projectId, identity);
     await interaction.reply({
       ephemeral: true,
@@ -50,5 +78,21 @@ export async function handleGitHubCommand(
       error: error instanceof Error ? error.name : "UnknownError"
     });
     await interaction.reply({ content: message, ephemeral: true });
+  }
+}
+
+export async function handleGitHubRepositorySelection(
+  interaction: import("discord.js").StringSelectMenuInteraction,
+  app: GitHubAppService,
+  logger: Logger
+) {
+  const identity = extractIdentity(interaction);
+  const [, projectId, connectionId] = interaction.customId.split(":");
+  try {
+    const association = await app.selectRepository(projectId, connectionId, Number(interaction.values[0]), identity);
+    await interaction.update({ content: `Repository **${association.owner}/${association.repository}** is now associated with the project.`, components: [] });
+  } catch (error) {
+    logger.error("command.failed", { command: "github.repositories.select", userId: identity.userId, error: error instanceof Error ? error.name : "UnknownError" });
+    await interaction.update({ content: "That repository selection is no longer valid or accessible.", components: [] });
   }
 }
