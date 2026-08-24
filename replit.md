@@ -121,7 +121,7 @@ Current fact types are project identity, project status, and configured GitHub r
 
 Project Intelligence is a read-only application layer. It retrieves data through `ProjectService`, `RealityService`, and `ContextService`; it does not access Context or Reality tables directly and does not persist derived health results.
 
-The result includes project identity, current state, current GitHub repository status when available, bounded activity when available, verified Reality facts, limited supporting Context evidence, milestone availability, an explainable health state, and a generation timestamp.
+The result includes project identity, current state, current GitHub repository status when available, a typed Repository Development summary, bounded activity when available, verified Reality facts, limited supporting Context evidence, milestone availability, an explainable health state, and a generation timestamp. Development data is computed on demand and is not persisted.
 
 ### Precedence and evidence
 
@@ -151,7 +151,17 @@ The service retrieves at most five recent items of each supported type by defaul
 
 The GitHub issues endpoint can include pull requests; those responses are excluded from the issue list. Empty lists mean no matching recent activity was returned. API failures are represented as an explicit unavailable reason, never as zero activity.
 
-Activity is shown concisely in `/intelligence project` with counts, open issue/pull-request counts, the latest commit when one exists, and retrieval time. It is not automatically stored in Context or promoted into Reality, cannot complete/change milestones, and does not affect deterministic health.
+Activity is shown concisely in `/intelligence project` within the **GitHub Development** section with repository identity, default branch, visibility, recent counts, open issue/pull-request counts, latest commit details, deterministic activity age, and retrieval time. It is not automatically stored in Context or promoted into Reality, cannot complete/change milestones, and does not affect deterministic health.
+
+### Repository Development Summary
+
+`RepositoryDevelopmentSummary` combines existing normalized repository status and `GitHubActivityService` data. It includes owner, repository name, full name, default branch, visibility, URL, recent commit/issue/pull-request counts, open issue/pull-request counts, latest commit message/timestamp, and activity retrieval time.
+
+Latest commit age is represented as `ageSeconds`, calculated from the commit timestamp and an injected application clock. Discord formats that value for display but does not use it to infer health or project progress.
+
+Repository metadata can be available while activity is unavailable. A successful empty GitHub response reports zero counts; a failed Activity request reports an explicit unavailable activity state instead of fabricated zeros. If repository status itself is unavailable, the development summary is unavailable.
+
+Development signals are descriptive observations only. Commit counts, issue counts, pull requests, open work, branch names, quietness, and commit age do not change health, Reality facts, Context records, or milestones.
 
 ### Milestones
 

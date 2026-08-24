@@ -1,5 +1,6 @@
 import type { ContextRecord } from "../context/context.js";
 import type {
+  GitHubUnavailable,
   GitHubRepositoryActivityStatus,
   GitHubStatus
 } from "../github/github-service.js";
@@ -35,6 +36,38 @@ export interface MilestoneSummary {
   reason?: string;
 }
 
+export interface RepositoryDevelopmentSummary {
+  status: "available" | "unavailable";
+  repository?: {
+    owner: string;
+    name: string;
+    fullName: string;
+    defaultBranch: string;
+    visibility: "private" | "public";
+    url: string;
+  };
+  activity:
+    | {
+        status: "available";
+        recentCommitCount: number;
+        recentIssueCount: number;
+        recentPullRequestCount: number;
+        openIssueCount: number;
+        openPullRequestCount: number;
+        latestCommit?: {
+          message: string;
+          timestamp: string;
+          ageSeconds?: number;
+        };
+        retrievedAt: string;
+      }
+    | {
+        status: "unavailable";
+        reason: GitHubUnavailable["reason"];
+      };
+  reason?: GitHubUnavailable["reason"];
+}
+
 export interface ProjectIntelligenceResult {
   project: Pick<Project, "id" | "name" | "description">;
   state: {
@@ -43,6 +76,7 @@ export interface ProjectIntelligenceResult {
   };
   github: GitHubStatus;
   activity: GitHubRepositoryActivityStatus;
+  development: RepositoryDevelopmentSummary;
   verifiedFacts: RealityRecord[];
   supportingEvidence: IntelligenceEvidence[];
   milestone: MilestoneSummary;

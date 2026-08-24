@@ -1320,13 +1320,30 @@ test("project intelligence presents GitHub activity without changing Reality, mi
     reality,
     context,
     undefined,
-    new GitHubActivityService(projects)
+    new GitHubActivityService(projects),
+    () => new Date("2026-08-24T05:00:00Z")
   );
   const result = await intelligence.getProjectIntelligence(project.id, { userId: ownerId });
   assert.equal(result.activity.connected, true);
   assert.equal(result.activity.connected && result.activity.commits[0]?.message, "Add activity intelligence");
   assert.equal(result.activity.connected && result.activity.issues.length, 1);
   assert.equal(result.activity.connected && result.activity.pullRequests.length, 1);
+  assert.deepEqual(result.development.repository, {
+    owner: "octocat",
+    name: "hello-world",
+    fullName: "octocat/hello-world",
+    defaultBranch: "main",
+    visibility: "private",
+    url: "https://github.com/octocat/hello-world"
+  });
+  assert.equal(result.development.status, "available");
+  assert.equal(result.development.activity.status, "available");
+  assert.equal(result.development.activity.recentCommitCount, 1);
+  assert.equal(result.development.activity.recentIssueCount, 1);
+  assert.equal(result.development.activity.recentPullRequestCount, 1);
+  assert.equal(result.development.activity.openIssueCount, 1);
+  assert.equal(result.development.activity.openPullRequestCount, 1);
+  assert.equal(result.development.activity.latestCommit?.ageSeconds, 61200);
   assert.equal(result.verifiedFacts.length, 0);
   assert.equal(result.milestone.status, "unavailable");
   assert.equal(result.health.state, "active");
@@ -1341,7 +1358,7 @@ test("project intelligence presents GitHub activity without changing Reality, mi
     reply: async (value: string) => { response = value; }
   } as never;
   await handleIntelligenceCommand(interaction, useCase, createLogger());
-  assert.match(response, /\*\*GitHub Activity\*\*/);
+   assert.match(response, /\*\*GitHub Development\*\*/);
   assert.match(response, /Recent commits: 1/);
   assert.match(response, /Latest commit: Add activity intelligence/);
 });

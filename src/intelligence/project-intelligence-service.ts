@@ -8,12 +8,14 @@ import type { RealityRecord } from "../reality/reality.js";
 import { RealityService } from "../reality/reality-service.js";
 import { MilestoneService } from "../milestones/milestone-service.js";
 import type { ProjectMilestone } from "../milestones/milestone.js";
+import type { GitHubCommitActivity } from "../github/github-client.js";
 import type {
   IntelligenceEvidence,
   IntelligenceHealthState,
   IntelligenceReason,
   MilestoneSummary,
-  ProjectIntelligenceResult
+  ProjectIntelligenceResult,
+  RepositoryDevelopmentSummary
 } from "./intelligence.js";
 
 export class ProjectIntelligenceService {
@@ -22,7 +24,8 @@ export class ProjectIntelligenceService {
     private readonly reality: RealityService,
     private readonly context: ContextService,
     private readonly milestones?: MilestoneService,
-    private readonly activity?: GitHubActivityService
+    private readonly activity?: GitHubActivityService,
+    private readonly now: () => Date = () => new Date()
   ) {}
 
   async getProjectIntelligence(
@@ -40,6 +43,7 @@ export class ProjectIntelligenceService {
     ]);
     const state = getProjectState(project.status, verifiedFacts);
     const milestone = getMilestoneSummary(milestones);
+    const generatedAt = this.now().toISOString();
     return {
       project: {
         id: project.id,
@@ -49,13 +53,89 @@ export class ProjectIntelligenceService {
       state,
       github,
       activity,
+      development: getDevelopmentSummary(github, activity, this.now),
       verifiedFacts,
       supportingEvidence: contextRecords.map(toEvidence),
       milestone,
       health: getHealth(project.status, state.value, github, verifiedFacts, milestone),
-      generatedAt: new Date().toISOString()
+      generatedAt
     };
   }
+}
+
+function getDevelopmentSummary(
+  github: GitHubStatus,
+  activity: ProjectIntelligenceResult["activity"],
+  now: () => Date
+): RepositoryDevelopmentSummary {
+  if (!github.connected) {
+    return {
+      status: "unavailable",
+      activity: activity.connected
+        ? {
+            status: "available",
+            recentCommitCount: activity.commits.length,
+            recentIssueCount: activity.issues.length,
+            recentPullRequestCount: activity.pullRequests.length,
+            openIssueCount: activity.issues.filter((issue) => issue.state.toLowerCase() === "open").length,
+            openPullRequestCount: activity.pullRequests.filter((pullRequest) => pullRequest.state.toLowerCase() === "open").length,
+            latestCommit: getLatestCommit(activity.commits, now),
+            retrievedAt: activity.retrievedAt
+          }
+        : { status: "unavailable", reason: activity.reason },
+      reason: github.reason
+    };
+  }
+
+  const repository = github.repository;
+  const [owner, name] = splitFullName(repository.fullName);
+  return {
+    status: "available",
+    repository: {
+      owner,
+      name,
+      fullName: repository.fullName,
+      defaultBranch: repository.defaultBranch,
+      visibility: repository.private ? "private" : "public",
+      url: repository.htmlUrl
+    },
+    activity: activity.connected
+      ? {
+          status: "available",
+          recentCommitCount: activity.commits.length,
+          recentIssueCount: activity.issues.length,
+          recentPullRequestCount: activity.pullRequests.length,
+          openIssueCount: activity.issues.filter((issue) => issue.state.toLowerCase() === "open").length,
+          openPullRequestCount: activity.pullRequests.filter((pullRequest) => pullRequest.state.toLowerCase() === "open").length,
+          latestCommit: getLatestCommit(activity.commits, now),
+          retrievedAt: activity.retrievedAt
+        }
+      : { status: "unavailable", reason: activity.reason }
+  };
+}
+
+function getLatestCommit(
+  commits: GitHubCommitActivity[],
+  now: () => Date
+) {
+  const commit = commits[0];
+  if (!commit) return undefined;
+  const timestamp = commit.timestamp;
+  const parsed = Date.parse(timestamp);
+  return {
+    message: commit.message,
+    timestamp,
+    ageSeconds: Number.isNaN(parsed)
+      ? undefined
+      : Math.max(0, Math.floor((now().getTime() - parsed) / 1000))
+  };
+}
+
+function splitFullName(fullName: string): [string, string] {
+  const separator = fullName.indexOf("/");
+  return separator < 0
+    ? ["", fullName]
+    : [fullName.slice(0, separator), fullName.slice(separator + 1)];
 }
 
 function getProjectState(

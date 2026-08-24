@@ -65,8 +65,8 @@ function formatIntelligence(result: Awaited<ReturnType<GetProjectIntelligence["e
     "**Repository**",
     formatGitHub(result),
     "",
-    "**GitHub Activity**",
-    formatActivity(result),
+    "**GitHub Development**",
+    formatDevelopment(result),
     "",
     "**Verified Reality**",
     ...(result.verifiedFacts.length > 0
@@ -86,20 +86,42 @@ function formatIntelligence(result: Awaited<ReturnType<GetProjectIntelligence["e
   return lines.join("\n");
 }
 
-function formatActivity(result: Awaited<ReturnType<GetProjectIntelligence["execute"]>>): string {
-  if (!result.activity.connected) return `- Unavailable: ${result.activity.reason}`;
-  const latestCommit = result.activity.commits[0];
-  const openIssues = result.activity.issues.filter((issue) => issue.state === "open").length;
-  const openPullRequests = result.activity.pullRequests.filter((pullRequest) => pullRequest.state === "open").length;
+function formatDevelopment(result: Awaited<ReturnType<GetProjectIntelligence["execute"]>>): string {
+  if (result.development.status === "unavailable") {
+    return `- Unavailable: ${result.development.reason}`;
+  }
+  const repository = result.development.repository!;
+  if (result.development.activity.status === "unavailable") {
+    return [
+      `- ${repository.fullName}`,
+      `- Default branch: ${repository.defaultBranch}`,
+      `- Visibility: ${repository.visibility === "private" ? "Private" : "Public"}`,
+      `- Activity: Unavailable (${result.development.activity.reason})`
+    ].join("\n");
+  }
+  const activity = result.development.activity;
   return [
-    `- Recent commits: ${result.activity.commits.length}`,
-    `- Recent issues: ${result.activity.issues.length} (${openIssues} open)`,
-    `- Recent pull requests: ${result.activity.pullRequests.length} (${openPullRequests} open)`,
-    latestCommit
-      ? `- Latest commit: ${latestCommit.message} (${formatTimestamp(latestCommit.timestamp)})`
+    `- ${repository.fullName}`,
+    `- Default branch: ${repository.defaultBranch}`,
+    `- Visibility: ${repository.visibility === "private" ? "Private" : "Public"}`,
+    `- Recent commits: ${activity.recentCommitCount}`,
+    `- Recent issues: ${activity.recentIssueCount} (${activity.openIssueCount} open)`,
+    `- Recent pull requests: ${activity.recentPullRequestCount} (${activity.openPullRequestCount} open)`,
+    activity.latestCommit
+      ? `- Latest commit: ${activity.latestCommit.message} (${formatTimestamp(activity.latestCommit.timestamp)})`
       : "- Latest commit: None found",
-    `- Activity retrieved: ${formatTimestamp(result.activity.retrievedAt)}`
+    activity.latestCommit?.ageSeconds !== undefined
+      ? `- Activity age: ${formatAge(activity.latestCommit.ageSeconds)}`
+      : "- Activity age: Unavailable",
+    `- Activity retrieved: ${formatTimestamp(activity.retrievedAt)}`
   ].join("\n");
+}
+
+function formatAge(ageSeconds: number): string {
+  if (ageSeconds < 60) return `${ageSeconds}s`;
+  if (ageSeconds < 3600) return `${Math.floor(ageSeconds / 60)}m`;
+  if (ageSeconds < 86400) return `${Math.floor(ageSeconds / 3600)}h`;
+  return `${Math.floor(ageSeconds / 86400)}d`;
 }
 
 function formatTimestamp(timestamp: string): string {
