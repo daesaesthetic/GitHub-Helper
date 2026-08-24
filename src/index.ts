@@ -25,7 +25,8 @@ import {
   intelligenceCommand,
   handleIntelligenceCommand
 } from "./discord/intelligence-command.js";
-import { InMemoryMilestoneStore, MilestoneService } from "./milestones/milestone-service.js";
+import { MilestoneService } from "./milestones/milestone-service.js";
+import { InMemoryMilestoneStore } from "./milestones/milestone-store.js";
 
 const logger = createLogger();
 let config: AppConfig;

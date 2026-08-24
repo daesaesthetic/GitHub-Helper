@@ -36,7 +36,8 @@ import { handleRealityCommand } from "../src/discord/reality-command.js";
 import { ProjectIntelligenceService } from "../src/intelligence/project-intelligence-service.js";
 import { GetProjectIntelligence } from "../src/use-cases/project-intelligence.js";
 import { handleIntelligenceCommand } from "../src/discord/intelligence-command.js";
-import { InMemoryMilestoneStore, MilestoneService } from "../src/milestones/milestone-service.js";
+import { MilestoneService } from "../src/milestones/milestone-service.js";
+import { InMemoryMilestoneStore } from "../src/milestones/milestone-store.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
