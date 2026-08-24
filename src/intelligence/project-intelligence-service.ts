@@ -36,6 +36,7 @@ export class ProjectIntelligenceService {
     identity: RequestIdentity
   ): Promise<ProjectIntelligenceResult> {
     const project = this.projects.getAccessibleProject(projectId, identity);
+    projectId = project.id;
     const [github, verifiedFacts, contextRecords, milestones, activity] = await Promise.all([
       this.projects.getGitHubStatus(project, identity),
       this.reality.getProjectReality(projectId, identity, { verificationState: "verified" }),

@@ -21,7 +21,7 @@ export class GetProjectReality {
     await this.bootstrap.ensureInitialFacts(project, identity);
     return {
       projectName: project.name,
-      records: await this.reality.getProjectReality(projectId, identity)
+      records: await this.reality.getProjectReality(project.id, identity)
     };
   }
 }

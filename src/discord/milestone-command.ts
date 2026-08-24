@@ -5,7 +5,7 @@ import {
 } from "discord.js";
 import { extractIdentity } from "../identity.js";
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
-import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/project-service.js";
+import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundError } from "../projects/project-service.js";
 import {
   CurrentMilestoneConflictError,
   MilestoneNotFoundError,
@@ -23,7 +23,7 @@ const statuses = [
 function projectOption(option: SlashCommandStringOption): SlashCommandStringOption {
   return option
     .setName("project")
-    .setDescription("Project to manage")
+    .setDescription("Project ID or name to manage")
     .setRequired(true)
     .addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID });
 }
@@ -128,6 +128,8 @@ export async function handleMilestoneCommand(
       ? "You are not authorized to manage milestones for this project."
       : error instanceof ProjectNotFoundError
         ? "That project could not be found."
+        : error instanceof ProjectNameAmbiguousError
+          ? "More than one project has that name. Use its project ID instead."
         : error instanceof MilestoneNotFoundError
           ? "That milestone could not be found."
           : error instanceof CurrentMilestoneConflictError

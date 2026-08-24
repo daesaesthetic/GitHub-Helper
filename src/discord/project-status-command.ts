@@ -4,7 +4,7 @@ import {
 } from "discord.js";
 import { extractIdentity } from "../identity.js";
 import { GetProjectStatus } from "../use-cases/project-status.js";
-import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/project-service.js";
+import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundError } from "../projects/project-service.js";
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import type { Logger } from "../logging.js";
 
@@ -15,7 +15,7 @@ export const projectStatusCommand = new SlashCommandBuilder()
     subcommand
       .setName("status")
       .setDescription("View project status")
-       .addStringOption((option) => option.setName("project").setDescription("Project ID").setRequired(true))
+       .addStringOption((option) => option.setName("project").setDescription("Project ID or name").setRequired(true))
    )
   .addSubcommand((subcommand) =>
     subcommand.setName("list").setDescription("List your projects")
@@ -71,6 +71,8 @@ export async function handleProjectCommand(
       ? "You are not authorized to view this project."
       : error instanceof ProjectNotFoundError
         ? "That project could not be found."
+        : error instanceof ProjectNameAmbiguousError
+          ? "More than one project has that name. Use its project ID instead."
         : action === "add"
           ? "Unable to add that GitHub repository. Check the owner, repository name, and GitHub access."
         : "Unable to retrieve project status right now.";

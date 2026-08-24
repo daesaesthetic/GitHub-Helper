@@ -3,7 +3,7 @@ import {
   SlashCommandBuilder
 } from "discord.js";
 import { extractIdentity } from "../identity.js";
-import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/project-service.js";
+import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundError } from "../projects/project-service.js";
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import type { Logger } from "../logging.js";
 import { GetProjectContext } from "../use-cases/project-context.js";
@@ -18,7 +18,7 @@ export const contextCommand = new SlashCommandBuilder()
       .addStringOption((option) =>
         option
           .setName("project")
-          .setDescription("Project to inspect")
+           .setDescription("Project ID or name to inspect")
            .setRequired(true)
       )
   );
@@ -44,6 +44,8 @@ export async function handleContextCommand(
       ? "You are not authorized to view this project context."
       : error instanceof ProjectNotFoundError
         ? "That project could not be found."
+        : error instanceof ProjectNameAmbiguousError
+          ? "More than one project has that name. Use its project ID instead."
         : "Unable to retrieve project context right now.";
     logger.error("command.failed", {
       command: "context.project",
