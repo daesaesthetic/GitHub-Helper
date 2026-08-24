@@ -10,7 +10,7 @@ The application is a TypeScript modular monolith:
 
 `Discord interaction → identity extraction → command handler → application use case → ProjectIntelligenceService / ProjectService / MilestoneService / GitHubActivityService → ContextService / RealityService / GitHub service → ContextStore / RealityStore / MilestoneStore / GitHub client → PostgreSQL / GitHub API`
 
-The HTTP layer exposes `/health` for operational diagnostics. The project repository remains an in-memory deterministic development seed; Context Engine, Reality Layer, milestones, and the new GitHub connection foundation are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access persistence directly.
+The HTTP layer exposes `/health` for operational diagnostics. Projects, Context Engine records, Reality facts, milestones, and GitHub connection data are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access persistence directly.
 
 ## Technology stack
 
@@ -308,7 +308,7 @@ The GitHub connection schema source is `src/github-connections/schema.sql`. It c
 
 Important constraints include unique Discord user IDs, unique numeric GitHub user IDs, unique installation IDs when supplied, one repository association per project, a unique connection/repository pair, state nonce uniqueness, lifecycle status checks, foreign keys from connections to durable accounts/identities, and a partial expiry index for unconsumed authorization states. No table stores access tokens, OAuth tokens, App JWTs, client secrets, or private keys.
 
-The project model itself remains the existing deterministic in-memory seed. The association tables use stable project IDs, allowing durable connection data to be introduced without creating a competing project authorization system. Persisting a full mutable project catalog remains a separate future decision.
+The project catalog is stored in the `projects` table using stable project IDs. Startup initializes the table, hydrates the project repository, and idempotently preserves the development seed. Project additions therefore remain available after application restarts without creating a competing project authorization system.
 
 ## Running locally
 

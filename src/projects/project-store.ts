@@ -8,21 +8,7 @@ export class PostgresProjectRepository implements ProjectRepository {
   constructor(private readonly pool: Pool) {}
 
   async initialize(): Promise<void> {
-    await this.pool.query(`
-      CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        owner_id TEXT NOT NULL,
-        description TEXT NOT NULL,
-        status TEXT NOT NULL,
-        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-        integration_references JSONB NOT NULL DEFAULT '[]'::jsonb,
-        integrations JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS projects_owner_idx ON projects (owner_id, name);
-    `);
+    await this.pool.query(PROJECTS_SCHEMA);
     const result = await this.pool.query<ProjectRow>("SELECT * FROM projects ORDER BY created_at ASC");
     this.projects.clear();
     for (const row of result.rows) this.projects.set(row.id, toProject(row));
@@ -67,6 +53,22 @@ export class PostgresProjectRepository implements ProjectRepository {
     return saved;
   }
 }
+
+export const PROJECTS_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    integration_references JSONB NOT NULL DEFAULT '[]'::jsonb,
+    integrations JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS projects_owner_idx ON projects (owner_id, name);
+`;
 
 interface ProjectRow {
   id: string;

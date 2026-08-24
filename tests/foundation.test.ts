@@ -83,6 +83,7 @@ import { activityCommand, handleActivityCommand } from "../src/discord/activity-
 import { trendsCommand, handleTrendsCommand } from "../src/discord/trends-command.js";
 import { helpCommand, handleHelpCommand } from "../src/discord/help-command.js";
 import { setupCommand, handleSetupCommand } from "../src/discord/setup-command.js";
+import { PostgresProjectRepository } from "../src/projects/project-store.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
@@ -946,6 +947,48 @@ test("ambiguous project names require a project ID", () => {
     () => projects.getAccessibleProject(first.name, { userId: ownerId }),
     ProjectNameAmbiguousError
   );
+});
+
+test("Postgres project repository reloads saved projects across instances", async () => {
+  const rows: Record<string, unknown>[] = [];
+  const pool = {
+    async query(query: string, params: unknown[] = []) {
+      if (query.includes("SELECT * FROM projects")) {
+        return { rows: [...rows] };
+      }
+      if (query.includes("INSERT INTO projects")) {
+        const row = {
+          id: params[0],
+          name: params[1],
+          owner_id: params[2],
+          description: params[3],
+          status: params[4],
+          metadata: JSON.parse(String(params[5])),
+          integration_references: JSON.parse(String(params[6])),
+          integrations: JSON.parse(String(params[7]))
+        };
+        const index = rows.findIndex((item) => item.id === row.id);
+        if (index >= 0) rows[index] = row;
+        else rows.push(row);
+        return { rows: [row] };
+      }
+      return { rows: [] };
+    }
+  } as never;
+  const original = {
+    ...createSeedProject(ownerId),
+    id: "github-daesaesthetic-zekhet",
+    name: "Zekhet",
+    integrations: { github: { owner: "daesaesthetic", repository: "Zekhet", repositoryId: "12345" } },
+    integrationReferences: ["github"]
+  };
+  const first = new PostgresProjectRepository(pool);
+  await first.initialize();
+  await first.save(original);
+
+  const second = new PostgresProjectRepository(pool);
+  await second.initialize();
+  assert.deepEqual(second.findById(original.id), original);
 });
 
 test("/project status returns expected project information", async () => {

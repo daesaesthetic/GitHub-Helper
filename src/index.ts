@@ -77,11 +77,7 @@ if (config.github) {
 const github = config.github || config.githubApp || config.githubToken
   ? new GitHubService(new GitHubClient(config.githubToken ?? ""))
   : undefined;
-if (!projectRepository.findById(seedProject.id)) {
-  await projectRepository.save(seedProject);
-} else if (config.github) {
-  await projectRepository.save(seedProject);
-}
+await projectRepository.save(seedProject);
 const projects = new ProjectService(projectRepository, github);
 const activity = new GitHubActivityService(projects);
 const getProjectActivity = new GetProjectActivity(activity);
