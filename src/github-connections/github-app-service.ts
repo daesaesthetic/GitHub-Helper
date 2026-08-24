@@ -6,7 +6,7 @@ import {
   GitHubConnectionService,
   GitHubRepositoryAssociationService
 } from "./github-connection-services.js";
-import { GitHubAppAuthenticator } from "./github-app-authenticator.js";
+import { GitHubAppAuthenticationError, GitHubAppAuthenticator, type InstallationRepository } from "./github-app-authenticator.js";
 import { GitHubConnectionNotFoundError } from "./github-connection.js";
 
 export class GitHubAppConfigurationError extends Error {}
@@ -82,7 +82,7 @@ export class GitHubAppService {
     const connection = (await this.connections.listOwned(identity))
       .find((item) => item.status === "active" && item.installationId !== undefined);
     if (!connection?.installationId) throw new GitHubConnectionNotFoundError("No active GitHub installation is connected");
-    return { connection, repositories: await this.authenticator.listRepositories(connection.installationId) };
+    return { connection, repositories: await this.listConnectionRepositories(connection.installationId) };
   }
 
   async selectRepository(projectId: string, connectionId: string, repositoryId: number, identity: RequestIdentity) {
@@ -91,7 +91,7 @@ export class GitHubAppService {
     if (connection.status !== "active" || connection.installationId === undefined) {
       throw new GitHubConnectionNotFoundError("GitHub installation is not active");
     }
-    const repositories = await this.authenticator.listRepositories(connection.installationId);
+    const repositories = await this.listConnectionRepositories(connection.installationId);
     const repository = repositories.find((item) => item.id === repositoryId);
     if (!repository) throw new GitHubConnectionNotFoundError("Repository is not accessible through this installation");
     return this._associations.associate({
@@ -120,6 +120,20 @@ export class GitHubAppService {
     if (!connection) return false;
     await this.connections.setStatus(connection.id, "disconnected", identity);
     return true;
+  }
+
+  private async listConnectionRepositories(installationId: number): Promise<InstallationRepository[]> {
+    try {
+      return await this.authenticator.listRepositories(installationId);
+    } catch (error) {
+      if (
+        error instanceof GitHubAppAuthenticationError &&
+        (error.failureKind === "revoked" || error.failureKind === "suspended")
+      ) {
+        await this.connections.markInstallationStatus(installationId, error.failureKind);
+      }
+      throw error;
+    }
   }
 
   private async exchangeCode(code: string): Promise<string> {

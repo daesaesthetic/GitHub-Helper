@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { loadConfig, ConfigurationError } from "../src/config.js";
 import { extractIdentity } from "../src/identity.js";
 import { createSeedProject, DEVELOPMENT_PROJECT_ID } from "../src/projects/project.js";
@@ -70,6 +71,11 @@ import {
   GitHubRepositoryAssociationService
 } from "../src/github-connections/github-connection-services.js";
 import { GitHubCredentialResolver } from "../src/github-connections/github-credential-resolver.js";
+import { handleGitHubCommand } from "../src/discord/github-command.js";
+import {
+  GitHubAppAuthenticationError,
+  GitHubAppAuthenticator
+} from "../src/github-connections/github-app-authenticator.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
@@ -228,6 +234,203 @@ test("credential resolution prefers an owned connection and falls back to develo
     () => resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: "other-user" }),
     ProjectAccessDeniedError
   );
+});
+
+test("installation failures distinguish revoked, suspended, and temporary GitHub states", async () => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const config = {
+    appId: 1,
+    privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+    clientId: "client",
+    clientSecret: "secret",
+    slug: "app",
+    callbackUrl: "https://example.test/github/callback"
+  };
+  for (const [response, expected] of [
+    [new Response(JSON.stringify({ message: "Not Found" }), { status: 404 }), "revoked"],
+    [new Response(JSON.stringify({ message: "Installation suspended" }), { status: 403 }), "suspended"],
+    [new Response(JSON.stringify({ message: "Server Error" }), { status: 503 }), "temporary"]
+  ] as const) {
+    const authenticator = new GitHubAppAuthenticator(config, (async () => response) as typeof fetch);
+    await assert.rejects(
+      () => authenticator.createInstallationToken(42),
+      (error: unknown) => error instanceof GitHubAppAuthenticationError && error.failureKind === expected
+    );
+  }
+});
+
+test("definitive installation failures update lifecycle without changing associations", async () => {
+  const accounts = new InMemoryDiscordAccountStore();
+  const connections = new InMemoryGitHubConnectionStore();
+  const associations = new InMemoryProjectGitHubRepositoryStore();
+  const accountService = new DiscordAccountService(accounts);
+  const connectionService = new GitHubConnectionService(
+    connections, accountService, new GitHubIdentityService(new InMemoryGitHubIdentityStore())
+  );
+  const connection = await connectionService.connect({
+    id: "lifecycle-connection",
+    discordUserId: ownerId,
+    githubUserId: 88,
+    login: "owner",
+    installationId: 880,
+    permissionState: "read_only"
+  });
+  const association = await associations.upsert(createProjectGitHubRepository({
+    id: "lifecycle-association",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    connectionId: connection.id,
+    repositoryId: 881,
+    owner: "owner",
+    repository: "repo",
+    repositoryUrl: "https://github.com/owner/repo"
+  }));
+  const resolver = new GitHubCredentialResolver(
+    projectService, associations, connections, accounts, "development-token", {
+      async createInstallationToken() {
+        throw new GitHubAppAuthenticationError("Installation revoked", "revoked");
+      },
+      async onInstallationFailure(installationId, status) {
+        await connectionService.markInstallationStatus(installationId, status);
+      }
+    }
+  );
+  const credential = await resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: ownerId });
+  assert.equal(credential.source, "development_token");
+  assert.equal((await connections.findById(connection.id))?.status, "revoked");
+  assert.equal((await associations.findByProjectId(DEVELOPMENT_PROJECT_ID))?.id, association.id);
+
+  await connectionService.connect({
+    id: connection.id,
+    discordUserId: ownerId,
+    githubUserId: 88,
+    login: "owner",
+    installationId: 882,
+    permissionState: "read_only",
+    status: "active"
+  });
+  const reconnected = await connections.findById(connection.id);
+  assert.equal(reconnected?.status, "active");
+  assert.equal(reconnected?.installationId, 882);
+  assert.equal(reconnected?.githubIdentityId, connection.githubIdentityId);
+});
+
+test("temporary installation failures preserve active connections and do not use fallback", async () => {
+  const accounts = new InMemoryDiscordAccountStore();
+  const connections = new InMemoryGitHubConnectionStore();
+  const associations = new InMemoryProjectGitHubRepositoryStore();
+  const accountService = new DiscordAccountService(accounts);
+  const connectionService = new GitHubConnectionService(
+    connections, accountService, new GitHubIdentityService(new InMemoryGitHubIdentityStore())
+  );
+  const connection = await connectionService.connect({
+    id: "temporary-failure-connection",
+    discordUserId: ownerId,
+    githubUserId: 89,
+    login: "owner",
+    installationId: 890,
+    permissionState: "read_only"
+  });
+  await associations.upsert(createProjectGitHubRepository({
+    id: "temporary-failure-association",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    connectionId: connection.id,
+    repositoryId: 891,
+    owner: "owner",
+    repository: "repo",
+    repositoryUrl: "https://github.com/owner/repo"
+  }));
+  const resolver = new GitHubCredentialResolver(
+    projectService, associations, connections, accounts, "development-token", {
+      async createInstallationToken() {
+        throw new GitHubAppAuthenticationError("GitHub unavailable", "temporary");
+      },
+      async onInstallationFailure() {
+        throw new Error("Temporary failures must not update lifecycle");
+      }
+    }
+  );
+  await assert.rejects(() => resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: ownerId }));
+  assert.equal((await connections.findById(connection.id))?.status, "active");
+});
+
+test("suspended connections cannot mint credentials and preserve the development fallback", async () => {
+  const accounts = new InMemoryDiscordAccountStore();
+  const connections = new InMemoryGitHubConnectionStore();
+  const associations = new InMemoryProjectGitHubRepositoryStore();
+  const accountService = new DiscordAccountService(accounts);
+  const connectionService = new GitHubConnectionService(
+    connections, accountService, new GitHubIdentityService(new InMemoryGitHubIdentityStore())
+  );
+  const connection = await connectionService.connect({
+    id: "suspended-connection",
+    discordUserId: ownerId,
+    githubUserId: 90,
+    login: "owner",
+    installationId: 900,
+    permissionState: "read_only"
+  });
+  await associations.upsert(createProjectGitHubRepository({
+    id: "suspended-association",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    connectionId: connection.id,
+    repositoryId: 901,
+    owner: "owner",
+    repository: "repo",
+    repositoryUrl: "https://github.com/owner/repo"
+  }));
+  await connectionService.markInstallationStatus(900, "suspended");
+  let tokenRequested = false;
+  const resolver = new GitHubCredentialResolver(
+    projectService, associations, connections, accounts, "development-token", {
+      async createInstallationToken() {
+        tokenRequested = true;
+        return { token: "unexpected", expiresAt: "2026-01-01T01:00:00Z" };
+      }
+    }
+  );
+  assert.equal((await resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).source, "development_token");
+  assert.equal(tokenRequested, false);
+  assert.equal((await connections.findById(connection.id))?.status, "suspended");
+});
+
+test("/github status reports durable lifecycle states safely", async () => {
+  for (const [status, expected] of [
+    ["active", "GitHub connection: Active"],
+    ["disconnected", "GitHub connection: Disconnected"],
+    ["revoked", "GitHub connection: Revoked\nThe connected GitHub installation is no longer available.\nPlease reconnect GitHub to restore access."],
+    ["suspended", "GitHub connection: Suspended\nThe connected GitHub installation is currently unavailable."]
+  ] as const) {
+    let content = "";
+    const interaction = {
+      user: { id: ownerId, username: "owner", globalName: "Owner" },
+      guildId: null,
+      channelId: null,
+      options: {
+        getSubcommand: () => "status",
+        getString: () => DEVELOPMENT_PROJECT_ID
+      },
+      reply: async (value: { content: string }) => { content = value.content; }
+    };
+    await handleGitHubCommand(interaction as never, {
+      async status() {
+        return {
+          connection: {
+            id: "connection",
+            discordAccountId: "account",
+            githubIdentityId: "identity",
+            githubAccountLogin: "owner",
+            permissionState: "read_only",
+            status,
+            createdAt: "2026-01-01T00:00:00Z",
+            updatedAt: "2026-01-01T00:00:00Z"
+          },
+          association: undefined
+        };
+      }
+    } as never, createLogger());
+    assert.ok(content.startsWith(expected));
+    assert.equal(content.includes("GitHub App API"), false);
+  }
 });
 
 test("project GitHub status uses an active installation credential before the development fallback", async () => {

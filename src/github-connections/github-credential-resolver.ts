@@ -13,7 +13,7 @@ export interface ResolvedGitHubCredential {
 }
 export interface GitHubInstallationCredentialProvider {
   createInstallationToken(installationId: number): Promise<{ token: string; expiresAt: string }>;
-  onInstallationFailure?: (installationId: number, kind: GitHubInstallationFailureKind) => Promise<void>;
+  onInstallationFailure?: (installationId: number, kind: "revoked" | "suspended") => Promise<void>;
 }
 
 export class GitHubCredentialResolver {
@@ -37,7 +37,9 @@ export class GitHubCredentialResolver {
           return { source: "user_owned_connection", connection, association };
         }
         if (!connection.installationId) {
-          return { source: "unavailable", connection, association };
+          return this.developmentToken
+            ? { source: "development_token" }
+            : { source: "unavailable", connection, association };
         }
         try {
           const credential = await this.installations.createInstallationToken(connection.installationId);

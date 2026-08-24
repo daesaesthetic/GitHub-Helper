@@ -202,6 +202,12 @@ The App private key is configuration-only. App JWTs and installation tokens are 
 
 The durable model keeps Discord account, numeric GitHub identity, App installation, GitHub repository, and project distinct. `/github status` returns safe connection metadata. `/github repositories` retrieves bounded installation-scoped repository metadata and presents up to Discord's 25-option selection limit. Selected repositories are revalidated server-side and stored through the project repository association service. `/github disconnect` marks the active user-owned connection disconnected without deleting Context, Reality, Intelligence, or milestones.
 
+Connection lifecycle states are `active`, `disconnected`, `revoked`, and `suspended`. A definitive GitHub App response that the installation is missing/deleted/revoked transitions an active durable connection to `revoked`; an explicit suspension response transitions it to `suspended`. This is applied when minting an installation token and when retrieving installation-scoped repositories.
+
+Network errors, timeouts, rate limits, server failures, malformed responses, and ambiguous App configuration errors do not change lifecycle state. They return the existing safe unavailable behavior. Repository associations are retained when a connection is invalidated but cannot authorize repository-backed access until a new active installation is connected.
+
+`/github status` displays Active, Disconnected, Revoked, or Suspended without raw GitHub errors. Revoked connections prompt the user to reconnect, while suspended connections state that the installation is currently unavailable. A successful new `/github connect` callback reuses the numeric GitHub identity, updates the validated installation on the durable connection, and makes that new installation active; it does not reactivate the old installation.
+
 ### Project-specific credentials
 
 `GitHubCredentialResolver` is the only project credential boundary. It authorizes through `ProjectService` before selecting a credential:
@@ -209,6 +215,8 @@ The durable model keeps Discord account, numeric GitHub identity, App installati
 1. An active user-owned association and installation token
 2. The configured development `GITHUB_TOKEN`
 3. Unavailable
+
+Only an active connection with an installation ID can mint a user-owned credential. Revoked, suspended, and disconnected connections are skipped without a token request. After definitive invalidation, the development-token fallback remains available for an authorized project when configured; temporary installation failures remain unavailable rather than silently falling back.
 
 `ProjectService` supplies the resolved token to the existing GitHub client/service for project status, Context ingestion, bounded Activity, and Intelligence's existing lower-level requests. No consumer independently chooses credentials. Unauthorized project access never reaches either credential source.
 
@@ -248,6 +256,7 @@ Optional:
 - `AUTHORIZED_USER_ID`
 - `GITHUB_TOKEN`, `GITHUB_OWNER`, and `GITHUB_REPOSITORY` (required together to enable the development GitHub integration)
 - `GITHUB_REPOSITORY_ID`
+- `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, and `GITHUB_APP_CALLBACK_URL` (required together to enable the optional GitHub App connection flow)
 
 ## Security and authorization
 
@@ -260,11 +269,12 @@ Optional:
 - GitHub activity is project-scoped, bounded, read-only, and retrieved only after project authorization. It never exposes GitHub credentials or raw API errors.
 - Milestone reads and mutations are project-scoped and always authorize through `ProjectService`; Discord handlers never access milestone storage directly.
 - GitHub connection records never store raw GitHub credentials. Authorization-state nonces use Node cryptographic randomness, expire, and can be consumed only once. User-owned connections and repository associations are checked against the requesting Discord user at the service boundary.
+- Only confirmed revoked/deleted or suspended installation responses can update a connection lifecycle state. Temporary and ambiguous external failures never revoke, suspend, delete, or reactivate a connection.
 - No background polling, continuous synchronization, broad Discord ingestion, or cache is used in this phase.
 
 ## Testing and verification
 
-Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Activity tests cover bounded commit, issue, and pull-request retrieval; issue/PR separation; typed mapping; malformed/unavailable responses; authorization; and Intelligence formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Intelligence tests cover deterministic active, attention, and unknown health; explainable reasons; Reality precedence; labeled Context evidence; activity presentation without Reality/milestone/health inference; project isolation; and `/intelligence project` authorization and formatting. Milestone tests cover validation, create/update/status/delete behavior, completion timestamps, deterministic ordering, a single current milestone, authorization, project isolation, Intelligence integration, and milestone command behavior. Tests never require a live GitHub credential.
+Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. They also cover GitHub App installation classification for revoked, suspended, and temporary responses; lifecycle transitions; preservation of associations; inactive credential rejection; development fallback behavior; and reconnect replacement using the same numeric GitHub identity. Activity tests cover bounded commit, issue, and pull-request retrieval; issue/PR separation; typed mapping; malformed/unavailable responses; authorization; and Intelligence formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Intelligence tests cover deterministic active, attention, and unknown health; explainable reasons; Reality precedence; labeled Context evidence; activity presentation without Reality/milestone/health inference; project isolation; and `/intelligence project` authorization and formatting. Milestone tests cover validation, create/update/status/delete behavior, completion timestamps, deterministic ordering, a single current milestone, authorization, project isolation, Intelligence integration, and milestone command behavior. Tests never require a live GitHub credential.
 
 Run:
 
