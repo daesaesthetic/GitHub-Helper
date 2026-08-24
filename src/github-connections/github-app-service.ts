@@ -32,7 +32,7 @@ export class GitHubAppService {
   ) {}
 
   async createConnectUrl(projectId: string, identity: RequestIdentity): Promise<string> {
-    this.projects.getAccessibleProject(projectId, identity);
+    projectId = this.projects.getAccessibleProject(projectId, identity).id;
     if (!this.config) throw new GitHubAppConfigurationError("GitHub App authorization is not configured");
     const state = await this.authorization.create({
       discordUserId: identity.userId,
@@ -78,7 +78,7 @@ export class GitHubAppService {
   }
 
   async discoverRepositories(projectId: string, identity: RequestIdentity) {
-    this.projects.getAccessibleProject(projectId, identity);
+    projectId = this.projects.getAccessibleProject(projectId, identity).id;
     const connection = (await this.connections.listOwned(identity))
       .find((item) => item.status === "active" && item.installationId !== undefined);
     if (!connection?.installationId) throw new GitHubConnectionNotFoundError("No active GitHub installation is connected");
@@ -86,7 +86,7 @@ export class GitHubAppService {
   }
 
   async selectRepository(projectId: string, connectionId: string, repositoryId: number, identity: RequestIdentity) {
-    this.projects.getAccessibleProject(projectId, identity);
+    projectId = this.projects.getAccessibleProject(projectId, identity).id;
     const connection = await this.connections.getOwned(connectionId, identity);
     if (connection.status !== "active" || connection.installationId === undefined) {
       throw new GitHubConnectionNotFoundError("GitHub installation is not active");
@@ -107,7 +107,7 @@ export class GitHubAppService {
   }
 
   async status(projectId: string, identity: RequestIdentity) {
-    this.projects.getAccessibleProject(projectId, identity);
+    projectId = this.projects.getAccessibleProject(projectId, identity).id;
     const connections = await this.connections.listOwned(identity);
     const connection = connections.find((item) => item.status === "active") ?? connections[0];
     const association = await this._associations.findForAuthorizedProject(projectId, identity);

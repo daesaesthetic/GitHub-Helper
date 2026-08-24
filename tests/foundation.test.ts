@@ -7,6 +7,7 @@ import { createSeedProject, DEVELOPMENT_PROJECT_ID } from "../src/projects/proje
 import {
   InMemoryProjectRepository,
   ProjectAccessDeniedError,
+  ProjectNameAmbiguousError,
   ProjectService
 } from "../src/projects/project-service.js";
 import { GetProjectStatus } from "../src/use-cases/project-status.js";
@@ -919,6 +920,32 @@ test("GitHub project creation accepts a repository URL", async () => {
 
   assert.equal(created.integrations.github?.owner, "daesaesthetic");
   assert.equal(created.integrations.github?.repository, "Zekhet");
+});
+
+test("projects resolve by exact ID or case-insensitive owner-visible name", () => {
+  const first = createSeedProject(ownerId);
+  const second = {
+    ...createSeedProject(ownerId),
+    id: "github-daesaesthetic-zekhet",
+    name: "Zekhet"
+  };
+  const projects = new ProjectService(new InMemoryProjectRepository([first, second]));
+  assert.equal(projects.getAccessibleProject(DEVELOPMENT_PROJECT_ID, { userId: ownerId }).id, DEVELOPMENT_PROJECT_ID);
+  assert.equal(projects.getAccessibleProject("zekhet", { userId: ownerId }).id, second.id);
+});
+
+test("ambiguous project names require a project ID", () => {
+  const first = createSeedProject(ownerId);
+  const second = {
+    ...createSeedProject(ownerId),
+    id: "github-daesaesthetic-zekhet",
+    name: first.name
+  };
+  const projects = new ProjectService(new InMemoryProjectRepository([first, second]));
+  assert.throws(
+    () => projects.getAccessibleProject(first.name, { userId: ownerId }),
+    ProjectNameAmbiguousError
+  );
 });
 
 test("/project status returns expected project information", async () => {

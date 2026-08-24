@@ -29,8 +29,8 @@ export class RealityService {
     identity: RequestIdentity,
     query: Omit<RealityQuery, "projectId"> = {}
   ): Promise<RealityRecord[]> {
-    this.projects.getAccessibleProject(projectId, identity);
-    return this.store.list({ projectId, ...query });
+    const project = this.projects.getAccessibleProject(projectId, identity);
+    return this.store.list({ projectId: project.id, ...query });
   }
 
   async getFactById(id: string, identity: RequestIdentity): Promise<RealityRecord | undefined> {

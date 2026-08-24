@@ -8,6 +8,7 @@ import type { GitHubCredentialResolver } from "../github-connections/github-cred
 
 export class ProjectNotFoundError extends Error {}
 export class ProjectAccessDeniedError extends Error {}
+export class ProjectNameAmbiguousError extends Error {}
 
 export interface ProjectRepository {
   findById(id: string): Project | undefined;
@@ -116,8 +117,19 @@ export class ProjectService {
     }, identity);
   }
 
-  getAccessibleProject(id: string, identity: RequestIdentity): Project {
-    const project = this.getProjectById(id);
+  getAccessibleProject(identifier: string, identity: RequestIdentity): Project {
+    const exact = this.repository.findById(identifier);
+    const matches = exact
+      ? [exact]
+      : (this.repository.list?.() ?? []).filter((project) =>
+          project.ownerId === identity.userId &&
+          project.name.trim().toLowerCase() === identifier.trim().toLowerCase()
+        );
+    if (matches.length > 1) {
+      throw new ProjectNameAmbiguousError("More than one project has that name");
+    }
+    const project = matches[0];
+    if (!project) throw new ProjectNotFoundError("Project was not found");
     if (project.ownerId !== identity.userId) {
       throw new ProjectAccessDeniedError("You are not authorized to view this project");
     }

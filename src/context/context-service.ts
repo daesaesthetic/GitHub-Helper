@@ -19,8 +19,8 @@ export class ContextService {
     identity: RequestIdentity,
     query: Omit<ContextQuery, "projectId"> = {}
   ): Promise<ContextRecord[]> {
-    this.projects.getAccessibleProject(projectId, identity);
-    return this.store.list({ projectId, ...query });
+    const project = this.projects.getAccessibleProject(projectId, identity);
+    return this.store.list({ projectId: project.id, ...query });
   }
 
   async getContextById(id: string, identity: RequestIdentity): Promise<ContextRecord | undefined> {

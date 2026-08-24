@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 import { extractIdentity } from "../identity.js";
-import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/project-service.js";
+import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundError } from "../projects/project-service.js";
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import { GetProjectTrends } from "../use-cases/project-trends.js";
 import type { Logger } from "../logging.js";
@@ -13,7 +13,7 @@ export const trendsCommand = new SlashCommandBuilder()
     .setDescription("View observed GitHub trends for the last 30 days")
     .addStringOption((option) => option
       .setName("project")
-      .setDescription("Project to inspect")
+       .setDescription("Project ID or name to inspect")
       .setRequired(true)));
 
 export async function handleTrendsCommand(
@@ -32,6 +32,8 @@ export async function handleTrendsCommand(
       ? "You are not authorized to view this project's trends."
       : error instanceof ProjectNotFoundError
         ? "That project could not be found."
+        : error instanceof ProjectNameAmbiguousError
+          ? "More than one project has that name. Use its project ID instead."
         : "GitHub trends are unavailable right now. Please try again later.";
     logger.error("command.failed", { command: "trends.project", userId: identity.userId, projectId, error: error instanceof Error ? error.name : "UnknownError" });
     await interaction.reply({ ephemeral: true, content: message });

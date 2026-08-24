@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, StringSelectMenuBuilder, ActionRowBuilder, SlashCommandBuilder } from "discord.js";
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import { extractIdentity } from "../identity.js";
-import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/project-service.js";
+import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundError } from "../projects/project-service.js";
 import { GitHubAppConfigurationError, GitHubAppService } from "../github-connections/github-app-service.js";
 import { GitHubConnectionNotFoundError } from "../github-connections/github-connection.js";
 import { GitHubAppAuthenticationError } from "../github-connections/github-app-authenticator.js";
@@ -15,11 +15,10 @@ export const githubCommand = new SlashCommandBuilder()
     .setDescription("Start a secure GitHub App connection")
     .addStringOption((option) => option
       .setName("project")
-      .setDescription("Project to connect")
-      .setRequired(true)
-      .addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID })));
-githubCommand.addSubcommand((subcommand) => subcommand.setName("status").setDescription("View GitHub connection status").addStringOption((option) => option.setName("project").setDescription("Project").setRequired(true).addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID })));
-githubCommand.addSubcommand((subcommand) => subcommand.setName("repositories").setDescription("Choose an accessible GitHub repository").addStringOption((option) => option.setName("project").setDescription("Project").setRequired(true).addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID })));
+       .setDescription("Project ID or name to connect")
+       .setRequired(true)));
+githubCommand.addSubcommand((subcommand) => subcommand.setName("status").setDescription("View GitHub connection status").addStringOption((option) => option.setName("project").setDescription("Project ID or name").setRequired(true)));
+githubCommand.addSubcommand((subcommand) => subcommand.setName("repositories").setDescription("Choose an accessible GitHub repository").addStringOption((option) => option.setName("project").setDescription("Project ID or name").setRequired(true)));
 githubCommand.addSubcommand((subcommand) => subcommand.setName("disconnect").setDescription("Disconnect your user-owned GitHub installation"));
 
 export async function handleGitHubCommand(
@@ -79,6 +78,8 @@ export async function handleGitHubCommand(
       ? "You are not authorized to connect GitHub for this project."
       : error instanceof ProjectNotFoundError
         ? "That project could not be found."
+      : error instanceof ProjectNameAmbiguousError
+        ? "More than one project has that name. Use its project ID instead."
       : error instanceof GitHubAppConfigurationError
         ? "User-owned GitHub connections are not configured yet. Use /github connect after the GitHub App is configured. Existing development GitHub access is unchanged."
         : error instanceof GitHubConnectionNotFoundError

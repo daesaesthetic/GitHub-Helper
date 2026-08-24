@@ -1,6 +1,6 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder } from "discord.js";
 import { extractIdentity } from "../identity.js";
-import { ProjectAccessDeniedError, ProjectNotFoundError } from "../projects/project-service.js";
+import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundError } from "../projects/project-service.js";
 import { DEVELOPMENT_PROJECT_ID } from "../projects/project.js";
 import type { Logger } from "../logging.js";
 import { GetProjectReality } from "../use-cases/project-reality.js";
@@ -15,7 +15,7 @@ export const realityCommand = new SlashCommandBuilder()
       .addStringOption((option) =>
         option
           .setName("project")
-          .setDescription("Project to inspect")
+           .setDescription("Project ID or name to inspect")
            .setRequired(true)
       )
   );
@@ -41,6 +41,8 @@ export async function handleRealityCommand(
       ? "You are not authorized to view this project reality."
       : error instanceof ProjectNotFoundError
         ? "That project could not be found."
+        : error instanceof ProjectNameAmbiguousError
+          ? "More than one project has that name. Use its project ID instead."
         : "Unable to retrieve project reality right now.";
     logger.error("command.failed", {
       command: "reality.project",

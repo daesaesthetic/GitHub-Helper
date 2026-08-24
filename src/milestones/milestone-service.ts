@@ -21,7 +21,8 @@ export class MilestoneService {
     input: Omit<ProjectMilestoneInput, "id"> & { id?: string },
     identity: RequestIdentity
   ): Promise<ProjectMilestone> {
-    this.projects.getAccessibleProject(input.projectId, identity);
+    const project = this.projects.getAccessibleProject(input.projectId, identity);
+    input = { ...input, projectId: project.id };
     if (input.status === "current") {
       await this.assertNoCurrentConflict(input.projectId);
     }
@@ -36,8 +37,8 @@ export class MilestoneService {
     projectId: string,
     identity: RequestIdentity
   ): Promise<ProjectMilestone[]> {
-    this.projects.getAccessibleProject(projectId, identity);
-    return this.store.list({ projectId });
+    const project = this.projects.getAccessibleProject(projectId, identity);
+    return this.store.list({ projectId: project.id });
   }
 
   async update(

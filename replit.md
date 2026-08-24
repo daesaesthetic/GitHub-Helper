@@ -43,7 +43,7 @@ When GitHub is not configured, `/project status` reports **GitHub: Not configure
 
 `/project list` and `/project add`
 
-The owner can list configured projects and add any accessible GitHub repository as a new project. The repository field accepts either a name such as `Zekhet` or a full URL such as `https://github.com/daesaesthetic/Zekhet`. Project-specific commands use the returned project ID, so the bot is not limited to the original development seed.
+The owner can list configured projects and add any accessible GitHub repository as a new project. The repository field accepts either a name such as `Zekhet` or a full URL such as `https://github.com/daesaesthetic/Zekhet`. Project-specific commands accept either the returned project ID or the project display name, ignoring capitalization. If two projects share a name, Discord asks for the project ID instead.
 
 `/help` and `/setup`
 
