@@ -27,6 +27,13 @@ export class AiProviderUnavailableError extends Error {
   }
 }
 
+export class AiProviderTimeoutError extends Error {
+  constructor() {
+    super("AI provider timed out");
+    this.name = "AiProviderTimeoutError";
+  }
+}
+
 export class UnavailableAiService implements AiService {
   async explain(_input: GroundedEvidencePackage): Promise<GroundedExplanation> {
     throw new AiProviderUnavailableError();
@@ -46,9 +53,17 @@ export class BoundedAiService implements AiService {
     let lastError: unknown;
     for (let attempt = 0; attempt <= this.retries; attempt += 1) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
       try {
-        const response = await this.provider(prompt, controller.signal);
+        const response = await Promise.race([
+          this.provider(prompt, controller.signal),
+          new Promise<never>((_, reject) => {
+            timeoutHandle = setTimeout(() => {
+              controller.abort();
+              reject(new AiProviderTimeoutError());
+            }, this.timeoutMs);
+          })
+        ]);
         const text = redactSensitiveText(response).trim();
         if (!text) throw new Error("AI provider returned an empty response");
         return {
@@ -59,11 +74,10 @@ export class BoundedAiService implements AiService {
       } catch (error) {
         lastError = error;
       } finally {
-        clearTimeout(timeout);
+        if (timeoutHandle) clearTimeout(timeoutHandle);
       }
     }
-    throw new Error(lastError instanceof Error && lastError.name === "AbortError"
-      ? "AI provider timed out"
-      : "AI provider is unavailable");
+    if (lastError instanceof AiProviderTimeoutError) throw lastError;
+    throw new Error("AI provider is unavailable");
   }
 }

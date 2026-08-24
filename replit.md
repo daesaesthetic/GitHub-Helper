@@ -321,7 +321,7 @@ Project-owned schema sources declare foreign-key relationships to `projects` for
 5. Optionally set the complete GitHub development configuration described above.
 6. Run `npm run build && npm start`.
 
-The application registers the global `project status`, `context project`, `reality project`, `intelligence project`, and `milestone` commands at startup and serves `GET /health` on `PORT` (default `3000`).
+The application registers the global `project status`, `context project`, `reality project`, `intelligence project`, `explain project`, `secrets list`, and `milestone` commands at startup and serves `GET /health` on `PORT` (default `3000`).
 
 ## Required environment variables
 
@@ -350,6 +350,9 @@ Optional:
 - GitHub App callbacks validate the authorization state and all external GitHub data before consuming the nonce. If final nonce consumption fails after connection persistence, the connection is restored to its prior state or marked disconnected so a failed callback cannot leave an active partial connection.
 - Context ingestion uses the composite `(project_id, source_type, source_identity)` as its durable source identity, preventing repeated ingestion from creating duplicate records for the same project source.
 - PostgreSQL enforces the one-current-milestone rule with a partial unique index; concurrent conflicts are returned as the same safe domain error as the application-level check.
+- `/secrets list` uses an allowlisted metadata-only environment provider. It reports configured secret names and provider scope, never values, ciphertext, hashes, or derived values; it is not a persistent secret inventory.
+- `/explain project` authorizes through `ProjectService`, selects only bounded Intelligence evidence, enforces the returned project ID, redacts sensitive structures and values, and sends no data to a provider until one is explicitly configured.
+- The AI boundary supports bounded input, timeouts, one retry, empty-response handling, normalized failures, and output redaction. AI output cannot mutate Context, Reality, milestones, or project state.
 - Only confirmed revoked/deleted or suspended installation responses can update a connection lifecycle state. Temporary and ambiguous external failures never revoke, suspend, delete, or reactivate a connection.
 - No background polling, continuous synchronization, broad Discord ingestion, or cache is used in this phase.
 
@@ -357,7 +360,7 @@ Optional:
 
 Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. They also cover GitHub App installation classification for revoked, suspended, and temporary responses; lifecycle transitions; preservation of associations; inactive credential rejection; development fallback behavior; reconnect replacement using the same numeric GitHub identity; callback failure compensation after connection persistence; and safe callback error responses. Activity tests cover bounded commit, issue, and pull-request retrieval; issue/PR separation; typed mapping; malformed/unavailable responses; authorization; and Intelligence formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, source-identity upsert behavior, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Intelligence tests cover deterministic active, attention, and unknown health; explainable reasons; Reality precedence; labeled Context evidence; activity presentation without Reality/milestone/health inference; project isolation; and `/intelligence project` authorization and formatting. Milestone tests cover validation, create/update/status/delete behavior, completion timestamps, deterministic ordering, a single current milestone, PostgreSQL uniqueness conflict normalization, authorization, project isolation, Intelligence integration, and milestone command behavior. Tests never require a live GitHub credential.
 
-The current regression suite contains 70 passing tests.
+The current regression suite contains 77 passing tests.
 
 Run:
 
@@ -383,4 +386,4 @@ GitHub Activity Intelligence runtime verification completed successfully against
 
 ## Intentionally deferred
 
-Deferred: live GitHub App/OAuth browser onboarding remains unverified until the real App configuration and an authorized external installation are supplied. Webhooks, token refresh, repository synchronization, automatic milestone detection, percentage progress, milestone reminders, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations remain intentionally out of scope.
+Deferred: live GitHub App/OAuth browser onboarding remains unverified until the real App configuration and an authorized external installation are supplied. A real AI provider connection and live AI request remain intentionally unavailable until the user explicitly selects and connects a provider; the current `/explain project` path fails safely instead of fabricating a response. Persistent secret inventory, secret rotation, webhooks, token refresh, repository synchronization, automatic milestone detection, percentage progress, milestone reminders, embeddings, vector search, semantic search, AI memory extraction, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations remain intentionally out of scope.

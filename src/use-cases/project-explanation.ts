@@ -20,6 +20,9 @@ export class GetProjectExplanation {
   async execute(projectId: string, identity: RequestIdentity) {
     const project = this.projects.getAccessibleProject(projectId, identity);
     const intelligence = await this.intelligence.getProjectIntelligence(project.id, identity);
+    if (intelligence.project.id !== project.id) {
+      throw new ProjectEvidenceSelectionError("Project evidence crossed an authorization boundary");
+    }
     const evidence = selectEvidence(intelligence);
     return this.ai.explain(evidence);
   }
@@ -38,7 +41,7 @@ export function selectEvidence(result: ProjectIntelligenceResult): GroundedEvide
       { kind: "trends", value: result.trends },
       { kind: "milestone", value: result.milestone },
       { kind: "health", value: result.health },
-      ...result.supportingEvidence.slice(0, MAX_EVIDENCE_ITEMS)
+      ...result.supportingEvidence.slice(0, Math.max(0, MAX_EVIDENCE_ITEMS - 6))
     ],
     inferences: [],
     uncertainties: [

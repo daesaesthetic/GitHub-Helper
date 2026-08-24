@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { loadConfig, ConfigurationError } from "../src/config.js";
 import { extractIdentity } from "../src/identity.js";
+import { redactSensitiveText, redactSensitiveValue, containsUnredactedSecretPattern } from "../src/security/secret-redaction.js";
+import { BoundedAiService, AiProviderTimeoutError, UnavailableAiService } from "../src/ai/ai-service.js";
+import { GetProjectExplanation, ProjectEvidenceSelectionError, selectEvidence } from "../src/use-cases/project-explanation.js";
+import { GetProjectSecrets } from "../src/use-cases/project-secrets.js";
+import { handleSecretsCommand } from "../src/discord/secrets-command.js";
 import { createSeedProject, DEVELOPMENT_PROJECT_ID } from "../src/projects/project.js";
 import {
   InMemoryProjectRepository,
@@ -2134,6 +2139,207 @@ test("GitHub callback failures return safe recovery guidance", async () => {
   assert.doesNotMatch(body, /private callback details|sample/);
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
+
+test("secret redaction removes common credential-bearing values and structures", () => {
+  const source = [
+    "api_key=api-fake-value",
+    "Authorization: Bearer bearer-fake-value",
+    "github_token=ghp_fake-token-value",
+    "discord_token=discord.fake.token-value",
+    "password: fake-password",
+    "postgres://user:fake-password@db.example.test/app",
+    "-----BEGIN PRIVATE KEY----- fake-private-key -----END PRIVATE KEY-----"
+  ].join("\n");
+  const redacted = redactSensitiveText(source);
+  assert.doesNotMatch(redacted, /api-fake|bearer-fake|ghp_fake|discord\.fake|fake-password|fake-private/);
+  assert.match(redacted, /\[REDACTED\]/);
+  assert.equal(containsUnredactedSecretPattern(redacted), false);
+  assert.deepEqual(redactSensitiveValue({
+    token: "fake-token",
+    password: "fake-password",
+    nested: { safe: "ordinary text", clientSecret: "fake-secret" }
+  }), {
+    token: "[REDACTED]",
+    password: "[REDACTED]",
+    nested: { safe: "ordinary text", clientSecret: "[REDACTED]" }
+  });
+});
+
+test("project explanation selects bounded, sanitized evidence", () => {
+  const result = sampleIntelligenceResult({
+    verifiedFacts: [{
+      id: "fact-1",
+      projectId: DEVELOPMENT_PROJECT_ID,
+      factType: "project_status",
+      value: { status: "Development", password: "fake-password" },
+      verificationState: "verified"
+    }],
+    supportingEvidence: Array.from({ length: 100 }, (_, index) => ({
+      sourceType: "user_authored",
+      sourceIdentity: `source-${index}`,
+      reference: `reference-${index}`
+    }))
+  });
+  const evidence = selectEvidence(result);
+  assert.equal(evidence.verifiedFacts.length, 1);
+  assert.equal(evidence.sourceInformation.length, 40);
+  assert.equal(containsUnredactedSecretPattern(evidence), false);
+  assert.doesNotMatch(JSON.stringify(evidence), /fake-password/);
+});
+
+test("project explanation authorizes before retrieval and rejects cross-project evidence", async () => {
+  const intelligence = {
+    async getProjectIntelligence() {
+      return sampleIntelligenceResult({ project: { id: "another-project", name: "Other", description: "Other" } });
+    }
+  };
+  const ai = { async explain() { throw new Error("AI must not be called"); } };
+  const useCase = new GetProjectExplanation(projectService, intelligence as never, ai as never);
+  await assert.rejects(
+    () => useCase.execute(DEVELOPMENT_PROJECT_ID, { userId: "other-user" }),
+    ProjectAccessDeniedError
+  );
+  await assert.rejects(
+    () => useCase.execute(DEVELOPMENT_PROJECT_ID, { userId: ownerId }),
+    ProjectEvidenceSelectionError
+  );
+});
+
+test("AI boundary never receives unredacted secrets and redacts provider output", async () => {
+  let prompt = "";
+  const ai = new BoundedAiService(async (input) => {
+    prompt = input;
+    return "Summary with Bearer bearer-output-fake";
+  }, 100, 0);
+  const result = await ai.explain({
+    projectId: DEVELOPMENT_PROJECT_ID,
+    projectName: "Project",
+    generatedAt: new Date().toISOString(),
+    verifiedFacts: [{ value: "github_token=ghp_input-fake" }],
+    sourceInformation: [{ authorization: "Bearer input-fake" }],
+    inferences: [],
+    uncertainties: []
+  });
+  assert.equal(containsUnredactedSecretPattern(prompt), false);
+  assert.doesNotMatch(prompt, /ghp_input-fake|input-fake/);
+  assert.doesNotMatch(result.text, /bearer-output-fake/);
+});
+
+test("AI boundary handles provider failure, empty response, and timeout safely", async () => {
+  await assert.rejects(
+    () => new UnavailableAiService().explain(sampleEvidence()),
+    /No AI provider is configured/
+  );
+  await assert.rejects(
+    () => new BoundedAiService(async () => " ", 100, 0).explain(sampleEvidence()),
+    /AI provider is unavailable/
+  );
+  await assert.rejects(
+    () => new BoundedAiService(async () => new Promise<string>(() => {}), 5, 0).explain(sampleEvidence()),
+    AiProviderTimeoutError
+  );
+});
+
+test("/secrets list exposes only safe metadata and preserves authorization", async () => {
+  const provider = {
+    async listMetadata() {
+      return [{
+        name: "GITHUB_TOKEN",
+        scope: "project" as const,
+        configured: true,
+        provider: "replit-environment" as const,
+        value: "fake-github-token-that-must-not-display"
+      }] as never;
+    }
+  };
+  const useCase = new GetProjectSecrets(projectService, provider);
+  let response: unknown;
+  const interaction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleSecretsCommand(interaction, useCase, createLogger());
+  assert.deepEqual(response, {
+    content: "Configured secret metadata: 1\n- GITHUB_TOKEN — replit-environment — configured",
+    ephemeral: true
+  });
+  assert.doesNotMatch(JSON.stringify(response), /fake-github-token/);
+
+  const unauthorized = {
+    user: { id: "other-user", username: "other", globalName: "Other" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleSecretsCommand(unauthorized, useCase, createLogger());
+  assert.deepEqual(response, {
+    content: "You are not authorized to view secret metadata for this project.",
+    ephemeral: true
+  });
+});
+
+test("/secrets list handles an empty provider without exposing provider internals", async () => {
+  const useCase = new GetProjectSecrets(projectService, {
+    async listMetadata() { return []; }
+  });
+  let response: unknown;
+  const interaction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleSecretsCommand(interaction, useCase, createLogger());
+  assert.deepEqual(response, {
+    content: "No configured secret metadata is available for this project.",
+    ephemeral: true
+  });
+});
+
+function sampleEvidence() {
+  return {
+    projectId: DEVELOPMENT_PROJECT_ID,
+    projectName: "Project",
+    generatedAt: new Date().toISOString(),
+    verifiedFacts: [],
+    sourceInformation: [],
+    inferences: [],
+    uncertainties: []
+  };
+}
+
+function sampleIntelligenceResult(overrides: Record<string, unknown> = {}) {
+  return {
+    project: {
+      id: DEVELOPMENT_PROJECT_ID,
+      name: "Project",
+      description: "Description"
+    },
+    state: { value: "Development", source: "project" },
+    github: { connected: false, reason: "not_configured" },
+    activity: { connected: false, reason: "not_configured" },
+    development: { status: "unavailable", activity: { status: "unavailable", reason: "not_configured" }, reason: "not_configured" },
+    trends: {
+      status: "unavailable",
+      window: { start: "2026-01-01T00:00:00.000Z", end: "2026-01-31T00:00:00.000Z", durationSeconds: 2_592_000 },
+      coverage: "unavailable",
+      classification: "unavailable",
+      activityPresent: false,
+      reason: "not_configured"
+    },
+    verifiedFacts: [],
+    supportingEvidence: [],
+    milestone: { status: "unavailable", reason: "No milestones" },
+    health: { state: "unknown", reasons: [] },
+    generatedAt: new Date().toISOString(),
+    ...overrides
+  } as never;
+}
 
 function jsonResponse(body: object): Response {
   return new Response(JSON.stringify(body), {

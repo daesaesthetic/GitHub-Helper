@@ -1,7 +1,7 @@
 const REDACTED = "[REDACTED]";
 
 const sensitiveKey = /(?:token|secret|password|passwd|api[_-]?key|private[_-]?key|authorization|credential|connection[_-]?string)/i;
-const assignment = /(\b(?:api[_-]?key|token|secret|password|passwd|private[_-]?key|authorization|client[_-]?secret|github_token|discord_token|replit[_-]?(?:token|password|credential))\b\s*[:=]\s*)(["']?)([^\s"',;}\]]+)\2/gi;
+const assignment = /(\b(?:api[_-]?key|token|secret|password|passwd|private[_-]?key|authorization|client[_-]?secret|github_token|discord_token|replit[_-]?(?:token|password|credential))\b\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s"',;{}\[\]]+)/gi;
 const bearer = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 const pem = /-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/gi;
 const githubToken = /\b(?:gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{8,})\b/gi;
@@ -37,7 +37,7 @@ export function containsUnredactedSecretPattern(input: unknown): boolean {
     return new RegExp(pem.source, "i").test(input) ||
       new RegExp(bearer.source, "i").test(input) ||
       new RegExp(githubToken.source, "i").test(input) ||
-      discordToken.test(input) ||
+      new RegExp(discordToken.source).test(input) ||
       new RegExp(connectionString.source, "i").test(input) ||
       new RegExp(assignment.source, "i").test(input);
   }

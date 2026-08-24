@@ -5,6 +5,7 @@ import { ProjectAccessDeniedError, ProjectNameAmbiguousError, ProjectNotFoundErr
 import type { Logger } from "../logging.js";
 import { GetProjectExplanation } from "../use-cases/project-explanation.js";
 import { setProjectAutocomplete } from "./project-autocomplete.js";
+import { redactSensitiveText } from "../security/secret-redaction.js";
 
 export const explainCommand = new SlashCommandBuilder()
   .setName("explain")
@@ -25,7 +26,7 @@ export async function handleExplainCommand(
   const projectId = interaction.options.getString("project", true);
   try {
     const explanation = await getProjectExplanation.execute(projectId, identity);
-    await interaction.reply({ content: explanation.text.slice(0, 1900), ephemeral: true });
+    await interaction.reply({ content: redactSensitiveText(explanation.text).slice(0, 1900), ephemeral: true });
     logger.info("command.completed", { command: "explain.project", userId: identity.userId, projectId });
   } catch (error) {
     const message = error instanceof ProjectAccessDeniedError

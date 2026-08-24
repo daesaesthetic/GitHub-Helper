@@ -2,3 +2,4 @@
 - [Project name resolution](project-name-resolution.md) — resolve names safely at the project authorization boundary.
 - [Replit schema workflow](replit-schema-workflow.md) — use Replit’s post-merge/Publish schema flow instead of custom startup or production migration runners.
 - [GitHub callback compensation](github-callback-compensation.md) — consume authorization state only after external validation and compensate durable connection changes on finalization failure.
+- [Grounded explanation boundary](grounded-explanation-boundary.md) — explanations use bounded authorized Intelligence evidence and a provider-neutral AI boundary.

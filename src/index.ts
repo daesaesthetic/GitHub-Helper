@@ -176,7 +176,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       : "interaction";
   try {
     if (interaction.isAutocomplete()) {
-      if (["project", "context", "reality", "intelligence", "milestone", "github", "activity", "trends"]
+      if (["project", "context", "reality", "intelligence", "milestone", "github", "activity", "trends", "secrets", "explain"]
         .includes(interaction.commandName)) {
         await handleProjectAutocomplete(interaction, projects, extractIdentity(interaction));
       }
