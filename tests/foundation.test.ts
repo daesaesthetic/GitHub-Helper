@@ -1345,7 +1345,7 @@ test("project intelligence presents GitHub activity without changing Reality, mi
   });
   assert.equal(result.development.status, "available");
   assert.equal(result.development.activity.status, "available");
-  assert.equal(result.development.activity.recentCommitCount, 1);
+  assert.equal(result.development.activity.recentCommitCount, 2);
   assert.equal(result.development.activity.recentIssueCount, 1);
   assert.equal(result.development.activity.recentPullRequestCount, 1);
   assert.equal(result.development.activity.openIssueCount, 1);
@@ -1385,7 +1385,7 @@ test("project intelligence presents GitHub activity without changing Reality, mi
   assert.match(response, /\*\*Development Trends\*\*/);
   assert.match(response, /Window: last 30 days/);
   assert.match(response, /Coverage: bounded/);
-  assert.match(response, /Recent commits: 1/);
+  assert.match(response, /Recent commits: 2/);
   assert.match(response, /Latest commit: Add activity intelligence/);
 });
 

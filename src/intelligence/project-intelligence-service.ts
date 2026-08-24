@@ -46,7 +46,9 @@ export class ProjectIntelligenceService {
     ]);
     const state = getProjectState(project.status, verifiedFacts);
     const milestone = getMilestoneSummary(milestones);
-    const generatedAt = this.now().toISOString();
+    const currentTime = this.now();
+    const clock = () => currentTime;
+    const generatedAt = currentTime.toISOString();
     return {
       project: {
         id: project.id,
@@ -56,8 +58,8 @@ export class ProjectIntelligenceService {
       state,
       github,
       activity,
-      development: getDevelopmentSummary(github, activity, this.now),
-      trends: getDevelopmentTrends(activity, this.now),
+      development: getDevelopmentSummary(github, activity, clock),
+      trends: getDevelopmentTrends(activity, clock),
       verifiedFacts,
       supportingEvidence: contextRecords.map(toEvidence),
       milestone,

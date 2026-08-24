@@ -163,6 +163,16 @@ Repository metadata can be available while activity is unavailable. A successful
 
 Development signals are descriptive observations only. Commit counts, issue counts, pull requests, open work, branch names, quietness, and commit age do not change health, Reality facts, Context records, or milestones.
 
+### Repository Development Trends
+
+`RepositoryDevelopmentTrends` is a separate computed, on-demand view over the existing bounded Activity response. It uses a 30-day window with explicit ISO start/end timestamps and a duration in seconds. The injected clock is captured once per Intelligence result, so the generation timestamp, development recency, and trend-window end are deterministic and consistent.
+
+Trend counts include only commits, issues, and pull requests with timestamps inside the window. They are labeled **observed** counts, not a complete 30-day history. Coverage is therefore `bounded`, because the existing Activity service retrieves at most five recent items by default and the GitHub client caps each request at ten.
+
+The deterministic classification is `active` when at least one qualifying event is observed. A valid bounded empty sample is not presented as `quiet`, because it cannot establish complete absence of 30-day activity; its classification remains `unavailable` while coverage remains `bounded`. Failed Activity retrieval produces unavailable coverage and classification, never zero counts.
+
+Development Trends are descriptive only and do not affect health, Reality, Context, milestones, credential selection, GitHub connection lifecycle, or persistence.
+
 ### Milestones
 
 `project_milestones` is the authoritative persistent milestone store. Milestones have a stable ID, project ID, title, optional description, explicit status, non-negative position, timestamps, and an optional completion timestamp. Valid statuses are `current`, `upcoming`, and `completed`.
