@@ -2,6 +2,7 @@ import type { RequestIdentity } from "../identity.js";
 import type { ContextService } from "../context/context-service.js";
 import type { ContextRecord } from "../context/context.js";
 import type { GitHubStatus } from "../github/github-service.js";
+import { GitHubActivityService } from "../github/github-activity-service.js";
 import { ProjectService } from "../projects/project-service.js";
 import type { RealityRecord } from "../reality/reality.js";
 import { RealityService } from "../reality/reality-service.js";
@@ -20,7 +21,8 @@ export class ProjectIntelligenceService {
     private readonly projects: ProjectService,
     private readonly reality: RealityService,
     private readonly context: ContextService,
-    private readonly milestones?: MilestoneService
+    private readonly milestones?: MilestoneService,
+    private readonly activity?: GitHubActivityService
   ) {}
 
   async getProjectIntelligence(
@@ -28,11 +30,13 @@ export class ProjectIntelligenceService {
     identity: RequestIdentity
   ): Promise<ProjectIntelligenceResult> {
     const project = this.projects.getAccessibleProject(projectId, identity);
-    const [github, verifiedFacts, contextRecords, milestones] = await Promise.all([
+    const [github, verifiedFacts, contextRecords, milestones, activity] = await Promise.all([
       this.projects.getGitHubStatus(project),
       this.reality.getProjectReality(projectId, identity, { verificationState: "verified" }),
       this.context.getProjectContext(projectId, identity),
-      this.milestones?.getProjectMilestones(projectId, identity) ?? Promise.resolve([])
+      this.milestones?.getProjectMilestones(projectId, identity) ?? Promise.resolve([]),
+      this.activity?.getProjectActivity(projectId, identity)
+        ?? Promise.resolve({ connected: false as const, reason: "not_configured" as const })
     ]);
     const state = getProjectState(project.status, verifiedFacts);
     const milestone = getMilestoneSummary(milestones);
@@ -44,6 +48,7 @@ export class ProjectIntelligenceService {
       },
       state,
       github,
+      activity,
       verifiedFacts,
       supportingEvidence: contextRecords.map(toEvidence),
       milestone,

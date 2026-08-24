@@ -8,6 +8,7 @@ import { GetProjectStatus } from "./use-cases/project-status.js";
 import { handleProjectCommand, projectStatusCommand } from "./discord/project-status-command.js";
 import { GitHubClient } from "./github/github-client.js";
 import { GitHubService } from "./github/github-service.js";
+import { GitHubActivityService } from "./github/github-activity-service.js";
 import { Pool } from "pg";
 import { PostgresContextStore } from "./context/context-store.js";
 import { ContextService } from "./context/context-service.js";
@@ -52,6 +53,7 @@ if (config.github) {
 }
 const github = config.github ? new GitHubService(new GitHubClient(config.github.token)) : undefined;
 const projects = new ProjectService(new InMemoryProjectRepository(seedProject), github);
+const activity = new GitHubActivityService(projects);
 const getProjectStatus = new GetProjectStatus(projects);
 const database = new Pool({ connectionString: process.env.DATABASE_URL });
 const context = new ContextService(new PostgresContextStore(database), projects);
@@ -71,7 +73,8 @@ const intelligence = new ProjectIntelligenceService(
   projects,
   reality,
   context,
-  milestones
+  milestones,
+  activity
 );
 const getProjectIntelligence = new GetProjectIntelligence(intelligence);
 const healthServer = startHealthServer(config.port, logger);

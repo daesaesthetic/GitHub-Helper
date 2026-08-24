@@ -1,5 +1,8 @@
 import type { ContextRecord } from "../context/context.js";
-import type { GitHubStatus } from "../github/github-service.js";
+import type {
+  GitHubRepositoryActivityStatus,
+  GitHubStatus
+} from "../github/github-service.js";
 import type { Project } from "../projects/project.js";
 import type { RealityRecord } from "../reality/reality.js";
 
@@ -39,6 +42,7 @@ export interface ProjectIntelligenceResult {
     source: "reality" | "project" | "unknown";
   };
   github: GitHubStatus;
+  activity: GitHubRepositoryActivityStatus;
   verifiedFacts: RealityRecord[];
   supportingEvidence: IntelligenceEvidence[];
   milestone: MilestoneSummary;

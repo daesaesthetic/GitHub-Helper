@@ -3,6 +3,9 @@ import {
   GitHubApiError,
   GitHubClient,
   type GitHubReadme,
+  type GitHubCommitActivity,
+  type GitHubIssueActivity,
+  type GitHubPullRequestActivity,
   type GitHubRepository,
   type GitHubUser
 } from "./github-client.js";
@@ -27,6 +30,16 @@ export interface GitHubRepositoryContext {
 }
 
 export type GitHubRepositoryContextStatus = GitHubRepositoryContext | GitHubUnavailable;
+
+export interface GitHubRepositoryActivity {
+  connected: true;
+  retrievedAt: string;
+  commits: GitHubCommitActivity[];
+  issues: GitHubIssueActivity[];
+  pullRequests: GitHubPullRequestActivity[];
+}
+
+export type GitHubRepositoryActivityStatus = GitHubRepositoryActivity | GitHubUnavailable;
 
 export class GitHubService {
   constructor(private readonly client: GitHubClient) {}
@@ -63,6 +76,32 @@ export class GitHubService {
         if (!(error instanceof GitHubApiError) || error.kind !== "not_found") throw error;
       }
       return { connected: true, repository, readme };
+    } catch (error) {
+      const reason = error instanceof GitHubApiError ? error.kind : "unavailable";
+      return {
+        connected: false,
+        reason: reason === "invalid_response" ? "unavailable" : reason
+      };
+    }
+  }
+
+  async getRepositoryActivity(
+    reference: GitHubProjectReference,
+    limit = 5
+  ): Promise<GitHubRepositoryActivityStatus> {
+    try {
+      const [commits, issues, pullRequests] = await Promise.all([
+        this.client.getCommits(reference.owner, reference.repository, limit),
+        this.client.getIssues(reference.owner, reference.repository, limit),
+        this.client.getPullRequests(reference.owner, reference.repository, limit)
+      ]);
+      return {
+        connected: true,
+        retrievedAt: new Date().toISOString(),
+        commits,
+        issues,
+        pullRequests
+      };
     } catch (error) {
       const reason = error instanceof GitHubApiError ? error.kind : "unavailable";
       return {

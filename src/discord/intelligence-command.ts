@@ -65,6 +65,9 @@ function formatIntelligence(result: Awaited<ReturnType<GetProjectIntelligence["e
     "**Repository**",
     formatGitHub(result),
     "",
+    "**GitHub Activity**",
+    formatActivity(result),
+    "",
     "**Verified Reality**",
     ...(result.verifiedFacts.length > 0
       ? result.verifiedFacts.map((fact) => `- ${fact.factType}: ${formatValue(fact.value)}`)
@@ -81,6 +84,26 @@ function formatIntelligence(result: Awaited<ReturnType<GetProjectIntelligence["e
       : ["- No supporting Context evidence is available."])
   ];
   return lines.join("\n");
+}
+
+function formatActivity(result: Awaited<ReturnType<GetProjectIntelligence["execute"]>>): string {
+  if (!result.activity.connected) return `- Unavailable: ${result.activity.reason}`;
+  const latestCommit = result.activity.commits[0];
+  const openIssues = result.activity.issues.filter((issue) => issue.state === "open").length;
+  const openPullRequests = result.activity.pullRequests.filter((pullRequest) => pullRequest.state === "open").length;
+  return [
+    `- Recent commits: ${result.activity.commits.length}`,
+    `- Recent issues: ${result.activity.issues.length} (${openIssues} open)`,
+    `- Recent pull requests: ${result.activity.pullRequests.length} (${openPullRequests} open)`,
+    latestCommit
+      ? `- Latest commit: ${latestCommit.message} (${formatTimestamp(latestCommit.timestamp)})`
+      : "- Latest commit: None found",
+    `- Activity retrieved: ${formatTimestamp(result.activity.retrievedAt)}`
+  ].join("\n");
+}
+
+function formatTimestamp(timestamp: string): string {
+  return timestamp.replace("T", " ").replace(/\.\d{3}Z$/, " UTC").replace(/Z$/, " UTC");
 }
 
 function formatGitHub(result: Awaited<ReturnType<GetProjectIntelligence["execute"]>>): string {
