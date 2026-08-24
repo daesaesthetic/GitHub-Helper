@@ -637,14 +637,13 @@ test("GitHub configuration loads only when complete", () => {
     repository: "hello-world",
     repositoryId: "1296269"
   });
-  assert.throws(
-    () => loadConfig({
-      DISCORD_TOKEN: "test-token",
-      DISCORD_CLIENT_ID: "client-123",
-      GITHUB_TOKEN: "github-token"
-    }),
-    ConfigurationError
-  );
+  const tokenOnly = loadConfig({
+    DISCORD_TOKEN: "test-token",
+    DISCORD_CLIENT_ID: "client-123",
+    GITHUB_TOKEN: "github-token"
+  });
+  assert.equal(tokenOnly.githubToken, "github-token");
+  assert.equal(tokenOnly.github, undefined);
 });
 
 test("GitHub App configuration requires every setting and normalizes multiline keys", () => {

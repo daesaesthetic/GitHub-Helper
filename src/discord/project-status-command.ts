@@ -35,7 +35,7 @@ export async function handleProjectCommand(
   logger: Logger
 ): Promise<void> {
   const identity = extractIdentity(interaction);
-  const action = interaction.options.getSubcommand();
+  const action = interaction.options.getSubcommand?.() ?? "status";
   const projectId = interaction.options.getString("project") ?? DEVELOPMENT_PROJECT_ID;
   try {
     if (action === "list") {

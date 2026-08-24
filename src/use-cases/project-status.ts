@@ -12,7 +12,7 @@ export interface ProjectStatusResult {
 }
 
 export class GetProjectStatus {
-  constructor(private readonly projects: ProjectService) {}
+  constructor(public readonly projects: ProjectService) {}
 
   async execute(projectId: string, identity: RequestIdentity): Promise<ProjectStatusResult> {
     const project = this.projects.getStatus(projectId, identity);

@@ -16,8 +16,7 @@ export const realityCommand = new SlashCommandBuilder()
         option
           .setName("project")
           .setDescription("Project to inspect")
-          .setRequired(true)
-          .addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID })
+           .setRequired(true)
       )
   );
 

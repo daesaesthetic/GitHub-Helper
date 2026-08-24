@@ -26,6 +26,21 @@ export class GitHubCredentialResolver {
     private readonly installations?: GitHubInstallationCredentialProvider
   ) {}
 
+  async resolveForIdentity(identity: RequestIdentity): Promise<string> {
+    const account = await this.accounts.findByDiscordUserId(identity.userId);
+    const connection = (await (account ? this.connections.listByDiscordAccountId(account.id) : []))
+      .find((item) => item.status === "active" && item.installationId !== undefined);
+    if (connection?.installationId && this.installations) {
+      try {
+        return (await this.installations.createInstallationToken(connection.installationId)).token;
+      } catch {
+        // ProjectService will use the development token only when available.
+      }
+    }
+    if (this.developmentToken) return this.developmentToken;
+    throw new Error("No GitHub credential is available");
+  }
+
   async resolve(projectId: string, identity: RequestIdentity): Promise<ResolvedGitHubCredential> {
     this.projects.getAccessibleProject(projectId, identity);
     const account = await this.accounts.findByDiscordUserId(identity.userId);

@@ -3,6 +3,7 @@ export interface AppConfig {
   discordClientId: string;
   port: number;
   authorizedUserId?: string;
+  githubToken?: string;
   github?: GitHubConfig;
   githubApp?: GitHubAppConfig;
 }
@@ -41,24 +42,21 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     throw new ConfigurationError("PORT must be an integer between 1 and 65535");
   }
 
-  const githubValues = [
-    env.GITHUB_TOKEN,
-    env.GITHUB_OWNER,
-    env.GITHUB_REPOSITORY
-  ].map((value) => value?.trim()).filter(Boolean);
-  const hasGithubConfiguration = githubValues.length > 0 || Boolean(env.GITHUB_REPOSITORY_ID?.trim());
+  const githubToken = env.GITHUB_TOKEN?.trim();
+  const hasGithubRepositoryConfiguration = Boolean(
+    env.GITHUB_OWNER?.trim() || env.GITHUB_REPOSITORY?.trim() || env.GITHUB_REPOSITORY_ID?.trim()
+  );
   let github: GitHubConfig | undefined;
-  if (hasGithubConfiguration) {
-    const token = env.GITHUB_TOKEN?.trim();
+  if (hasGithubRepositoryConfiguration) {
     const owner = env.GITHUB_OWNER?.trim();
     const repository = env.GITHUB_REPOSITORY?.trim();
-    if (!token || !owner || !repository) {
+    if (!githubToken || !owner || !repository) {
       throw new ConfigurationError(
         "GITHUB_TOKEN, GITHUB_OWNER, and GITHUB_REPOSITORY are required together"
       );
     }
     github = {
-      token,
+      token: githubToken,
       owner,
       repository,
       repositoryId: env.GITHUB_REPOSITORY_ID?.trim() || undefined
@@ -101,6 +99,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     discordClientId,
     port,
     authorizedUserId: env.AUTHORIZED_USER_ID?.trim() || undefined,
+    githubToken,
     github,
     githubApp
   };

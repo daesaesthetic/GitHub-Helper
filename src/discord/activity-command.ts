@@ -14,8 +14,7 @@ export const activityCommand = new SlashCommandBuilder()
     .addStringOption((option) => option
       .setName("project")
       .setDescription("Project to inspect")
-      .setRequired(true)
-      .addChoices({ name: "Developer Intelligence Platform", value: DEVELOPMENT_PROJECT_ID })));
+      .setRequired(true)));
 
 export async function handleActivityCommand(
   interaction: ChatInputCommandInteraction,

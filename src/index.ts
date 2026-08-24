@@ -70,8 +70,8 @@ if (config.github) {
   };
   seedProject.integrationReferences = ["github"];
 }
-const github = config.github || config.githubApp
-  ? new GitHubService(new GitHubClient(config.github?.token ?? ""))
+const github = config.github || config.githubApp || config.githubToken
+  ? new GitHubService(new GitHubClient(config.githubToken ?? ""))
   : undefined;
 const projects = new ProjectService(new InMemoryProjectRepository(seedProject), github);
 const activity = new GitHubActivityService(projects);
@@ -122,7 +122,7 @@ const githubCredentials = new GitHubCredentialResolver(
   new PostgresProjectGitHubRepositoryStore(database),
   new PostgresGitHubConnectionStore(database),
   new PostgresDiscordAccountStore(database),
-  config.github?.token,
+   config.githubToken,
   Object.assign(new GitHubAppAuthenticator(config.githubApp), {
     onInstallationFailure: async (installationId: number, kind: "revoked" | "suspended") => {
       await githubConnections.markInstallationStatus(installationId, kind);
@@ -185,7 +185,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleHelpCommand(interaction, ownerId, logger);
     } else if (interaction.commandName === "setup") {
       await handleSetupCommand(interaction, ownerId, {
-        githubConfigured: Boolean(config.github),
+        githubConfigured: Boolean(config.githubToken),
         githubAppConfigured: Boolean(config.githubApp)
       }, logger);
     } else {

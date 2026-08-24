@@ -11,8 +11,8 @@ export class ProjectAccessDeniedError extends Error {}
 
 export interface ProjectRepository {
   findById(id: string): Project | undefined;
-  list(): Project[];
-  save(project: Project): Project;
+  list?(): Project[];
+  save?(project: Project): Project;
 }
 
 export class InMemoryProjectRepository implements ProjectRepository {
@@ -57,7 +57,7 @@ export class ProjectService {
   }
 
   getAccessibleProjects(identity: RequestIdentity): Project[] {
-    return this.repository.list().filter((project) => project.ownerId === identity.userId);
+    return (this.repository.list?.() ?? []).filter((project) => project.ownerId === identity.userId);
   }
 
   createProject(input: {
@@ -72,6 +72,7 @@ export class ProjectService {
     }
     const existing = this.repository.findById(input.id);
     if (existing) return existing;
+    if (!this.repository.save) throw new Error("Project persistence is unavailable");
     return this.repository.save({
       id: input.id,
       name: input.name,
@@ -82,6 +83,36 @@ export class ProjectService {
       integrationReferences: ["github"],
       integrations: { github: input.github }
     });
+  }
+
+  async createGitHubProject(
+    input: { owner: string; repository: string; name: string },
+    identity: RequestIdentity
+  ): Promise<Project> {
+    if (!this.github || !this.credentials) throw new Error("GitHub development access is not configured");
+    const projectId = `github-${input.owner}-${input.repository}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+    const existing = this.repository.findById(projectId);
+    if (existing) {
+      if (existing.ownerId !== identity.userId) throw new ProjectAccessDeniedError("Project is owned by another user");
+      return existing;
+    }
+    const credential = await this.credentials.resolveForIdentity(identity);
+    const status = await this.github.withCredential(credential).getRepositoryStatus({
+      owner: input.owner,
+      repository: input.repository
+    });
+    if (!status.connected) throw new Error(`GitHub repository is ${status.reason}`);
+    return this.createProject({
+      id: projectId,
+      name: input.name.trim() || status.repository.fullName,
+      description: `GitHub project for ${status.repository.fullName}.`,
+      ownerId: identity.userId,
+      github: {
+        owner: input.owner,
+        repository: input.repository,
+        repositoryId: String(status.repository.id)
+      }
+    }, identity);
   }
 
   getAccessibleProject(id: string, identity: RequestIdentity): Project {

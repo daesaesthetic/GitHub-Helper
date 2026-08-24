@@ -41,6 +41,10 @@ The command only exposes safe repository metadata. GitHub credential, headers, r
 
 When GitHub is not configured, `/project status` reports **GitHub: Not configured**. Invalid credentials, inaccessible repositories, rate limits, malformed API responses, and network/API failures report a concise **GitHub: Unavailable** state.
 
+`/project list` and `/project add`
+
+The owner can list configured projects and add any accessible GitHub repository as a new project by providing its owner and repository name. Project-specific commands use the returned project ID, so the bot is not limited to the original development seed.
+
 `/help` and `/setup`
 
 These owner-only commands explain the available bot operations and show whether the token-only development path is ready. They never display credentials or require a public deployment.
@@ -115,7 +119,7 @@ Discord command registration occurs before login, and the process exposes `/heal
 
 The current environment can live-verify startup, command registration, Discord connection, and `/health`. Command handlers are also exercised by automated tests. Live user-owned GitHub App connection, repository discovery/selection, and disconnect verification require the optional GitHub App configuration and an authorized external installation; they must not be claimed when those settings are absent.
 
-For a single-owner, no-deployment setup, configure `AUTHORIZED_USER_ID`, `GITHUB_TOKEN`, `GITHUB_OWNER`, and `GITHUB_REPOSITORY` as secure environment values. The GitHub App values are optional. No paid deployment is needed for this mode.
+For a single-owner, no-deployment setup, configure `AUTHORIZED_USER_ID` and `GITHUB_TOKEN` as secure environment values. `GITHUB_OWNER` and `GITHUB_REPOSITORY` are optional defaults for the original seed project; `/project add` can onboard repositories across the account using the token alone. The GitHub App values are optional. No paid deployment is needed for this mode.
 
 ## Context Engine
 
