@@ -39,6 +39,23 @@ export class GitHubConnectionService {
     const identity = await this.identities.upsert({ githubUserId: input.githubUserId, login: input.login });
     return this.store.upsert(createGitHubConnection({ ...input, discordAccountId: account.id, githubIdentityId: identity.id }));
   }
+  findByIdForCallback(id: string) {
+    return this.store.findById(id);
+  }
+  async compensateCallbackFailure(id: string, previous?: GitHubConnection): Promise<void> {
+    if (previous) {
+      await this.store.upsert({ ...previous, updatedAt: new Date().toISOString() });
+      return;
+    }
+    const current = await this.store.findById(id);
+    if (!current) return;
+    await this.store.upsert({
+      ...current,
+      status: "disconnected",
+      disconnectedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+  }
   async getOwned(id: string, identity: RequestIdentity): Promise<GitHubConnection> {
     const account = await this.accounts.findByDiscordUserId(identity.userId);
     const connection = await this.store.findById(id);
@@ -123,6 +140,13 @@ export class AuthorizationStateService {
     const consumed = await this.store.consume(nonce, state.discordAccountId, new Date());
     if (!consumed) throw new GitHubAuthorizationStateError("Authorization state is invalid, expired, or already used");
     return consumed;
+  }
+  async getByNonce(nonce: string) {
+    const state = await this.store.find(nonce);
+    if (!state || state.consumedAt || new Date(state.expiresAt) <= new Date()) {
+      throw new GitHubAuthorizationStateError("Authorization state is invalid, expired, or already used");
+    }
+    return state;
   }
   getAccount(id: string) { return this.accounts.findById(id); }
 }

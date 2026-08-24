@@ -51,7 +51,7 @@ export class GitHubAppService {
     if (params.get("error")) throw new Error("GitHub authorization was denied");
     const code = params.get("code");
     if (!code) throw new Error("Missing GitHub authorization code");
-    const state = await this.authorization.consumeByNonce(nonce);
+    const state = await this.authorization.getByNonce(nonce);
     const token = await this.exchangeCode(code);
     const client = (await import("../github/github-client.js")).GitHubClient;
     const user = await new client(token, this.fetcher).getAuthenticatedUser();
@@ -62,18 +62,30 @@ export class GitHubAppService {
     const installation = await this.authenticator.getInstallation(installationId);
     const account = await this.authorization.getAccount(state.discordAccountId);
     if (!account) throw new Error("Authorization account was not found");
-    await this.connections.connect({
-      id: `github-connection:${user.id}`,
-      discordUserId: account.discordUserId,
-      githubUserId: user.id,
-      login: user.login,
-      installationId,
-      githubAccountId: installation.accountId,
-      githubAccountLogin: installation.accountLogin,
-      githubAccountType: installation.accountType,
-      permissionState: "read_only",
-      status: "active"
-    });
+    const connectionId = `github-connection:${user.id}`;
+    const previous = await this.connections.findByIdForCallback(connectionId);
+    let connectionPersisted = false;
+    try {
+      await this.connections.connect({
+        id: connectionId,
+        discordUserId: account.discordUserId,
+        githubUserId: user.id,
+        login: user.login,
+        installationId,
+        githubAccountId: installation.accountId,
+        githubAccountLogin: installation.accountLogin,
+        githubAccountType: installation.accountType,
+        permissionState: "read_only",
+        status: "active"
+      });
+      connectionPersisted = true;
+      await this.authorization.consumeByNonce(nonce);
+    } catch (error) {
+      if (connectionPersisted) {
+        await this.connections.compensateCallbackFailure(connectionId, previous);
+      }
+      throw error;
+    }
     return { projectId: state.projectId, login: user.login };
   }
 

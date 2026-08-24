@@ -71,6 +71,7 @@ import {
   GitHubIdentityService,
   GitHubRepositoryAssociationService
 } from "../src/github-connections/github-connection-services.js";
+import { GitHubAppService } from "../src/github-connections/github-app-service.js";
 import { GitHubCredentialResolver } from "../src/github-connections/github-credential-resolver.js";
 import { handleGitHubCommand } from "../src/discord/github-command.js";
 import { GitHubAppConfigurationError } from "../src/github-connections/github-app-service.js";
@@ -359,6 +360,88 @@ test("temporary installation failures preserve active connections and do not use
   );
   await assert.rejects(() => resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: ownerId }));
   assert.equal((await connections.findById(connection.id))?.status, "active");
+});
+
+test("GitHub callback compensates a persisted connection when nonce consumption fails", async () => {
+  const accounts = new InMemoryDiscordAccountStore();
+  const connectionStore = new InMemoryGitHubConnectionStore();
+  const accountService = new DiscordAccountService(accounts);
+  const connectionService = new GitHubConnectionService(
+    connectionStore,
+    accountService,
+    new GitHubIdentityService(new InMemoryGitHubIdentityStore())
+  );
+  const account = await accountService.ensure(ownerId);
+  let consumed = false;
+  const state = {
+    id: "callback-state",
+    discordAccountId: account.id,
+    stateNonce: "callback-nonce",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    operation: "connect" as const,
+    projectId: DEVELOPMENT_PROJECT_ID,
+    createdAt: new Date().toISOString()
+  };
+  const authorization = {
+    async getByNonce() {
+      return state;
+    },
+    async consumeByNonce() {
+      consumed = true;
+      throw new Error("simulated nonce persistence failure");
+    },
+    async getAccount() {
+      return account;
+    }
+  };
+  const authenticator = {
+    async getInstallation() {
+      return {
+        id: 700,
+        accountId: 701,
+        accountLogin: "owner",
+        accountType: "User" as const
+      };
+    }
+  };
+  const fetcher = (async (input: string | URL) => {
+    if (String(input).endsWith("/access_token")) {
+      return jsonResponse({ access_token: "temporary-token" });
+    }
+    return jsonResponse({
+      id: 702,
+      login: "owner",
+      name: "Owner",
+      html_url: "https://github.com/owner"
+    });
+  }) as typeof fetch;
+  const app = new GitHubAppService(
+    {
+      appId: 1,
+      privateKey: "private-key",
+      clientId: "client",
+      clientSecret: "secret",
+      slug: "app",
+      callbackUrl: "https://example.test/github/callback"
+    },
+    authorization as never,
+    connectionService,
+    {} as never,
+    projectService,
+    fetcher,
+    authenticator as never
+  );
+
+  await assert.rejects(
+    () => app.completeCallback(new URLSearchParams({
+      state: state.stateNonce,
+      code: "oauth-code",
+      installation_id: "700"
+    })),
+    /simulated nonce persistence failure/
+  );
+  assert.equal(consumed, true);
+  assert.equal((await connectionStore.findById("github-connection:702"))?.status, "disconnected");
 });
 
 test("suspended connections cannot mint credentials and preserve the development fallback", async () => {
