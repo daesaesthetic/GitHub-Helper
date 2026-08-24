@@ -13,7 +13,7 @@ export class ProjectNameAmbiguousError extends Error {}
 export interface ProjectRepository {
   findById(id: string): Project | undefined;
   list?(): Project[];
-  save?(project: Project): Project;
+  save?(project: Project): Project | Promise<Project>;
 }
 
 export class InMemoryProjectRepository implements ProjectRepository {
@@ -61,13 +61,13 @@ export class ProjectService {
     return (this.repository.list?.() ?? []).filter((project) => project.ownerId === identity.userId);
   }
 
-  createProject(input: {
+  async createProject(input: {
     id: string;
     name: string;
     description: string;
     ownerId: string;
     github: { owner: string; repository: string; repositoryId?: string };
-  }, identity: RequestIdentity): Project {
+  }, identity: RequestIdentity): Promise<Project> {
     if (input.ownerId !== identity.userId) {
       throw new ProjectAccessDeniedError("You are not authorized to create this project");
     }

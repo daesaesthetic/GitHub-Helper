@@ -3,7 +3,8 @@ import { loadConfig, ConfigurationError, type AppConfig } from "./config.js";
 import { createLogger } from "./logging.js";
 import { startHealthServer } from "./health.js";
 import { createSeedProject } from "./projects/project.js";
-import { InMemoryProjectRepository, ProjectService } from "./projects/project-service.js";
+import { ProjectService } from "./projects/project-service.js";
+import { PostgresProjectRepository } from "./projects/project-store.js";
 import { GetProjectStatus } from "./use-cases/project-status.js";
 import { handleProjectCommand, projectStatusCommand } from "./discord/project-status-command.js";
 import { GitHubClient } from "./github/github-client.js";
@@ -61,6 +62,9 @@ try {
 }
 
 const ownerId = config.authorizedUserId ?? "development-owner";
+const database = new Pool({ connectionString: process.env.DATABASE_URL });
+const projectRepository = new PostgresProjectRepository(database);
+await projectRepository.initialize();
 const seedProject = createSeedProject(ownerId);
 if (config.github) {
   seedProject.integrations.github = {
@@ -73,11 +77,15 @@ if (config.github) {
 const github = config.github || config.githubApp || config.githubToken
   ? new GitHubService(new GitHubClient(config.githubToken ?? ""))
   : undefined;
-const projects = new ProjectService(new InMemoryProjectRepository(seedProject), github);
+if (!projectRepository.findById(seedProject.id)) {
+  await projectRepository.save(seedProject);
+} else if (config.github) {
+  await projectRepository.save(seedProject);
+}
+const projects = new ProjectService(projectRepository, github);
 const activity = new GitHubActivityService(projects);
 const getProjectActivity = new GetProjectActivity(activity);
 const getProjectStatus = new GetProjectStatus(projects);
-const database = new Pool({ connectionString: process.env.DATABASE_URL });
 const context = new ContextService(new PostgresContextStore(database), projects);
 const getProjectContext = new GetProjectContext(
   projects,
