@@ -14,6 +14,7 @@ import { createLogger } from "../src/logging.js";
 import { startHealthServer } from "../src/health.js";
 import { GitHubClient } from "../src/github/github-client.js";
 import { GitHubService } from "../src/github/github-service.js";
+import { GitHubActivityService } from "../src/github/github-activity-service.js";
 import {
   ContextValidationError,
   createContextRecord,
@@ -181,6 +182,114 @@ test("GitHub service returns safe failure states", async () => {
       { connected: false, reason: expected }
     );
   }
+});
+
+test("GitHub client retrieves bounded and typed commit, issue, and pull request activity", async () => {
+  const requests: string[] = [];
+  const client = new GitHubClient("test-token", (async (input) => {
+    const url = String(input);
+    requests.push(url);
+    if (url.includes("/commits?")) {
+      return jsonArrayResponse([{
+        sha: "abc123",
+        html_url: "https://github.com/octocat/hello-world/commit/abc123",
+        author: { login: "octocat" },
+        commit: {
+          message: "Add activity intelligence\n\nAdditional detail",
+          author: { name: "The Octocat", date: "2026-08-23T12:00:00Z" }
+        }
+      }]);
+    }
+    if (url.includes("/issues?")) {
+      return jsonArrayResponse([
+        {
+          number: 7,
+          title: "Open activity issue",
+          state: "open",
+          user: { login: "octocat" },
+          created_at: "2026-08-20T00:00:00Z",
+          updated_at: "2026-08-22T00:00:00Z",
+          html_url: "https://github.com/octocat/hello-world/issues/7"
+        },
+        {
+          number: 8,
+          title: "Pull request represented by issues API",
+          state: "open",
+          pull_request: {},
+          created_at: "2026-08-20T00:00:00Z",
+          updated_at: "2026-08-22T00:00:00Z",
+          html_url: "https://github.com/octocat/hello-world/pull/8"
+        }
+      ]);
+    }
+    return jsonArrayResponse([{
+      number: 8,
+      title: "Open activity pull request",
+      state: "open",
+      user: { login: "octocat" },
+      created_at: "2026-08-21T00:00:00Z",
+      updated_at: "2026-08-23T00:00:00Z",
+      html_url: "https://github.com/octocat/hello-world/pull/8"
+    }]);
+  }) as typeof fetch);
+  assert.deepEqual(await client.getCommits("octocat", "hello-world", 99), [{
+    sha: "abc123",
+    author: "octocat",
+    message: "Add activity intelligence",
+    timestamp: "2026-08-23T12:00:00Z",
+    htmlUrl: "https://github.com/octocat/hello-world/commit/abc123"
+  }]);
+  assert.equal((await client.getIssues("octocat", "hello-world", 3)).length, 1);
+  assert.deepEqual(await client.getPullRequests("octocat", "hello-world", 3), [{
+    number: 8,
+    title: "Open activity pull request",
+    state: "open",
+    author: "octocat",
+    createdAt: "2026-08-21T00:00:00Z",
+    updatedAt: "2026-08-23T00:00:00Z",
+    htmlUrl: "https://github.com/octocat/hello-world/pull/8"
+  }]);
+  assert.ok(requests.every((request) => request.includes("per_page=10") || request.includes("per_page=3")));
+});
+
+test("GitHub activity reports unavailable responses and rejects malformed data", async () => {
+  const unavailable = new GitHubService(
+    new GitHubClient("test-token", (async () => new Response("", { status: 503 })) as typeof fetch)
+  );
+  assert.deepEqual(
+    await unavailable.getRepositoryActivity({ owner: "octocat", repository: "hello-world" }),
+    { connected: false, reason: "unavailable" }
+  );
+  const malformed = new GitHubClient(
+    "test-token",
+    (async () => jsonResponse({ invalid: true })) as typeof fetch
+  );
+  await assert.rejects(() => malformed.getCommits("octocat", "hello-world"));
+});
+
+test("GitHub activity service enforces project authorization and keeps activity read-only", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world" };
+  project.integrationReferences = ["github"];
+  const github = new GitHubService(new GitHubClient("test-token", (async (input) => {
+    const url = String(input);
+    if (url.includes("/commits?") || url.includes("/issues?") || url.includes("/pulls?")) {
+      return jsonArrayResponse([]);
+    }
+    if (url.endsWith("/user")) {
+      return jsonResponse({ login: "octocat", id: 1, html_url: "https://github.com/octocat" });
+    }
+    return repositoryResponse();
+  }) as typeof fetch));
+  const projects = new ProjectService(new InMemoryProjectRepository(project), github);
+  const activity = new GitHubActivityService(projects);
+  const result = await activity.getProjectActivity(project.id, { userId: ownerId });
+  assert.equal(result.connected, true);
+  assert.equal(result.connected && result.commits.length, 0);
+  await assert.rejects(
+    () => activity.getProjectActivity(project.id, { userId: "other-user" }),
+    ProjectAccessDeniedError
+  );
 });
 
 test("GitHub-backed project status returns repository metadata", async () => {
@@ -735,6 +844,81 @@ test("project intelligence keeps Context as labeled evidence and gives verified 
   assert.doesNotMatch(result.health.reasons.map((reason) => reason.message).join("\n"), /blocked/i);
 });
 
+test("project intelligence presents GitHub activity without changing Reality, milestones, or health", async () => {
+  const project = createSeedProject(ownerId);
+  project.integrations.github = { owner: "octocat", repository: "hello-world" };
+  project.integrationReferences = ["github"];
+  const github = new GitHubService(new GitHubClient("test-token", (async (input) => {
+    const url = String(input);
+    if (url.includes("/commits?")) {
+      return jsonArrayResponse([{
+        sha: "activity-sha",
+        html_url: "https://github.com/octocat/hello-world/commit/activity-sha",
+        commit: {
+          message: "Add activity intelligence",
+          author: { name: "Octocat", date: "2026-08-23T12:00:00Z" }
+        }
+      }]);
+    }
+    if (url.includes("/issues?")) {
+      return jsonArrayResponse([{
+        number: 12,
+        title: "Recent issue",
+        state: "open",
+        created_at: "2026-08-22T00:00:00Z",
+        updated_at: "2026-08-23T00:00:00Z",
+        html_url: "https://github.com/octocat/hello-world/issues/12"
+      }]);
+    }
+    if (url.includes("/pulls?")) {
+      return jsonArrayResponse([{
+        number: 13,
+        title: "Recent pull request",
+        state: "open",
+        created_at: "2026-08-22T00:00:00Z",
+        updated_at: "2026-08-23T00:00:00Z",
+        html_url: "https://github.com/octocat/hello-world/pull/13"
+      }]);
+    }
+    if (url.endsWith("/user")) {
+      return jsonResponse({ login: "octocat", id: 1, html_url: "https://github.com/octocat" });
+    }
+    return repositoryResponse();
+  }) as typeof fetch));
+  const projects = new ProjectService(new InMemoryProjectRepository(project), github);
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+  const intelligence = new ProjectIntelligenceService(
+    projects,
+    reality,
+    context,
+    undefined,
+    new GitHubActivityService(projects)
+  );
+  const result = await intelligence.getProjectIntelligence(project.id, { userId: ownerId });
+  assert.equal(result.activity.connected, true);
+  assert.equal(result.activity.connected && result.activity.commits[0]?.message, "Add activity intelligence");
+  assert.equal(result.activity.connected && result.activity.issues.length, 1);
+  assert.equal(result.activity.connected && result.activity.pullRequests.length, 1);
+  assert.equal(result.verifiedFacts.length, 0);
+  assert.equal(result.milestone.status, "unavailable");
+  assert.equal(result.health.state, "active");
+
+  const useCase = new GetProjectIntelligence(intelligence);
+  let response = "";
+  const interaction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: { getString: () => DEVELOPMENT_PROJECT_ID },
+    reply: async (value: string) => { response = value; }
+  } as never;
+  await handleIntelligenceCommand(interaction, useCase, createLogger());
+  assert.match(response, /\*\*GitHub Activity\*\*/);
+  assert.match(response, /Recent commits: 1/);
+  assert.match(response, /Latest commit: Add activity intelligence/);
+});
+
 test("project intelligence enforces project isolation", async () => {
   const projectA = createSeedProject(ownerId);
   const projectB = { ...createSeedProject("owner-456"), id: "intelligence-project-b" };
@@ -1005,6 +1189,13 @@ test("health endpoint responds successfully", async () => {
 });
 
 function jsonResponse(body: object): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+}
+
+function jsonArrayResponse(body: object[]): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "content-type": "application/json" }

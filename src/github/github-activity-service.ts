@@ -7,7 +7,7 @@ export const DEFAULT_ACTIVITY_LIMIT = 5;
 export class GitHubActivityService {
   constructor(private readonly projects: ProjectService) {}
 
-  getProjectActivity(
+  async getProjectActivity(
     projectId: string,
     identity: RequestIdentity,
     limit = DEFAULT_ACTIVITY_LIMIT

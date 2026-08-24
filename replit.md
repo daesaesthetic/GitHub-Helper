@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, Phase 3 Context Engine foundation, Phase 4 Reality Layer foundation, Phase 5 Project Intelligence foundation, and persistent project milestones.
+This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, Phase 3 Context Engine foundation, Phase 4 Reality Layer foundation, Phase 5 Project Intelligence foundation, persistent project milestones, and bounded GitHub Activity Intelligence.
 
 ## Current architecture
 
 The application is a TypeScript modular monolith:
 
-`Discord interaction → identity extraction → command handler → application use case → ProjectIntelligenceService / ProjectService / MilestoneService → ContextService / RealityService / GitHub service → ContextStore / RealityStore / MilestoneStore / GitHub client → PostgreSQL / GitHub API`
+`Discord interaction → identity extraction → command handler → application use case → ProjectIntelligenceService / ProjectService / MilestoneService / GitHubActivityService → ContextService / RealityService / GitHub service → ContextStore / RealityStore / MilestoneStore / GitHub client → PostgreSQL / GitHub API`
 
 The HTTP layer exposes `/health` for operational diagnostics. The project repository remains in memory; Context Engine, Reality Layer, and project milestones are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access persistence directly.
 
@@ -57,7 +57,7 @@ The Project Intelligence foundation adds:
 
 `/intelligence project`
 
-It combines authorized Project state, current GitHub status, verified Reality facts, and clearly labeled Context evidence into a deterministic project summary. It is a computed view, not an AI chatbot and not another persistence layer.
+It combines authorized Project state, current GitHub status, bounded recent GitHub activity, verified Reality facts, and clearly labeled Context evidence into a deterministic project summary. It is a computed view, not an AI chatbot and not another persistence layer.
 
 Persistent milestones add:
 
@@ -121,7 +121,7 @@ Current fact types are project identity, project status, and configured GitHub r
 
 Project Intelligence is a read-only application layer. It retrieves data through `ProjectService`, `RealityService`, and `ContextService`; it does not access Context or Reality tables directly and does not persist derived health results.
 
-The result includes project identity, current state, current GitHub repository status when available, verified Reality facts, limited supporting Context evidence, milestone availability, an explainable health state, and a generation timestamp.
+The result includes project identity, current state, current GitHub repository status when available, bounded activity when available, verified Reality facts, limited supporting Context evidence, milestone availability, an explainable health state, and a generation timestamp.
 
 ### Precedence and evidence
 
@@ -138,6 +138,20 @@ Health is a deterministic state, never a score:
 - `blocked` — reserved for future authoritative blocked-state signals; Phase 5 does not infer it from Context
 
 Every health response includes the structured state, GitHub availability, verified Reality count, and milestone availability reasons used to produce it.
+
+### GitHub Activity Intelligence
+
+GitHub activity is a read-only, on-demand external evidence layer. `GitHubActivityService` authorizes project access through `ProjectService`, then retrieves activity only through the existing GitHub service and client. It does not persist API results.
+
+The service retrieves at most five recent items of each supported type by default, and the GitHub client caps every request at ten:
+
+- Commits: SHA, optional author, first-line message, timestamp, and URL
+- Issues: number, title, state, optional author, creation/update timestamps, and URL
+- Pull requests: number, title, state, optional author, creation/update timestamps, and URL
+
+The GitHub issues endpoint can include pull requests; those responses are excluded from the issue list. Empty lists mean no matching recent activity was returned. API failures are represented as an explicit unavailable reason, never as zero activity.
+
+Activity is shown concisely in `/intelligence project` with counts, open issue/pull-request counts, the latest commit when one exists, and retrieval time. It is not automatically stored in Context or promoted into Reality, cannot complete/change milestones, and does not affect deterministic health.
 
 ### Milestones
 
@@ -200,12 +214,13 @@ Optional:
 - Context content is not logged. Unauthorized users cannot retrieve project context.
 - Reality values are project-scoped and are not logged. Unauthorized users cannot retrieve or modify project Reality.
 - Intelligence is project-scoped, performs the same authorization before reading source data, and never promotes Context evidence into Reality.
+- GitHub activity is project-scoped, bounded, read-only, and retrieved only after project authorization. It never exposes GitHub credentials or raw API errors.
 - Milestone reads and mutations are project-scoped and always authorize through `ProjectService`; Discord handlers never access milestone storage directly.
 - No background polling, continuous synchronization, broad Discord ingestion, or cache is used in this phase.
 
 ## Testing and verification
 
-Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Intelligence tests cover deterministic active, attention, and unknown health; explainable reasons; Reality precedence; labeled Context evidence; project isolation; and `/intelligence project` authorization and formatting. Milestone tests cover validation, create/update/status/delete behavior, completion timestamps, deterministic ordering, a single current milestone, authorization, project isolation, Intelligence integration, and milestone command behavior. Tests never require a live GitHub credential.
+Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Activity tests cover bounded commit, issue, and pull-request retrieval; issue/PR separation; typed mapping; malformed/unavailable responses; authorization; and Intelligence formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Intelligence tests cover deterministic active, attention, and unknown health; explainable reasons; Reality precedence; labeled Context evidence; activity presentation without Reality/milestone/health inference; project isolation; and `/intelligence project` authorization and formatting. Milestone tests cover validation, create/update/status/delete behavior, completion timestamps, deterministic ordering, a single current milestone, authorization, project isolation, Intelligence integration, and milestone command behavior. Tests never require a live GitHub credential.
 
 Run:
 
@@ -226,6 +241,8 @@ Repeated `/context project` calls remained idempotent, and `/reality project` re
 Phase 5 runtime verification completed successfully: the application registered `/intelligence project`, connected to Discord, passed its health check, and the authorized Intelligence service ran against the configured GitHub repository and development database. It reported `active` health, `Development` state, a connected repository, the three expected verified Reality facts, one Context evidence record, and an unavailable milestone state. The Discord handler itself is covered by automated command tests; no synthetic Discord interaction was sent during runtime verification.
 
 Persistent milestone runtime verification completed successfully against PostgreSQL using a clearly labeled temporary milestone. It was created, listed, updated, transitioned to current when no conflicting current milestone existed, marked completed with a completion timestamp, included in the Intelligence summary, deleted, and confirmed absent afterward. The bot registered all milestone commands and connected to Discord; mutation handlers are covered by automated command tests, and no synthetic Discord interaction was sent.
+
+GitHub Activity Intelligence runtime verification completed successfully against the configured repository. The authorized project status, Reality, milestone, activity, and Intelligence service paths all ran successfully. Activity returned five bounded recent commits, no recent issues, no recent pull requests, and a latest commit timestamp. Repeated activity and Intelligence retrieval left Context, Reality, and milestone record counts unchanged. No activity persistence table exists, health remained `active`, and the bot registered commands, connected to Discord, and passed its health check. Discord formatting is covered by automated command tests; no synthetic Discord interaction was sent.
 
 ## Intentionally deferred
 
