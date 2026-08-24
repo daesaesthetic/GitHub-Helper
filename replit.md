@@ -2,15 +2,15 @@
 
 ## Purpose
 
-This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, Phase 3 Context Engine foundation, Phase 4 Reality Layer foundation, and Phase 5 Project Intelligence foundation.
+This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, Phase 3 Context Engine foundation, Phase 4 Reality Layer foundation, Phase 5 Project Intelligence foundation, and persistent project milestones.
 
 ## Current architecture
 
 The application is a TypeScript modular monolith:
 
-`Discord interaction → identity extraction → command handler → application use case → ProjectIntelligenceService / ProjectService → ContextService / RealityService / GitHub service → ContextStore / RealityStore / GitHub client → PostgreSQL / GitHub API`
+`Discord interaction → identity extraction → command handler → application use case → ProjectIntelligenceService / ProjectService / MilestoneService → ContextService / RealityService / GitHub service → ContextStore / RealityStore / MilestoneStore / GitHub client → PostgreSQL / GitHub API`
 
-The HTTP layer exposes `/health` for operational diagnostics. The project repository remains in memory; Context Engine and Reality Layer records are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access persistence directly.
+The HTTP layer exposes `/health` for operational diagnostics. The project repository remains in memory; Context Engine, Reality Layer, and project milestones are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access persistence directly.
 
 ## Technology stack
 
@@ -58,6 +58,12 @@ The Project Intelligence foundation adds:
 `/intelligence project`
 
 It combines authorized Project state, current GitHub status, verified Reality facts, and clearly labeled Context evidence into a deterministic project summary. It is a computed view, not an AI chatbot and not another persistence layer.
+
+Persistent milestones add:
+
+`/milestone list`, `/milestone create`, `/milestone update`, `/milestone status`, and `/milestone delete`
+
+They let the authorized project owner establish, view, change, order, and remove explicit project milestones. Milestones are project-owned state; they are not inferred from Context, README content, GitHub activity, or AI.
 
 ## Context Engine
 
@@ -135,7 +141,11 @@ Every health response includes the structured state, GitHub availability, verifi
 
 ### Milestones
 
-Phase 5 introduces a typed milestone result boundary only. No authoritative milestone source exists yet, so it returns `unavailable` with an explicit reason rather than inventing current, completed, upcoming, or percentage progress.
+`project_milestones` is the authoritative persistent milestone store. Milestones have a stable ID, project ID, title, optional description, explicit status, non-negative position, timestamps, and an optional completion timestamp. Valid statuses are `current`, `upcoming`, and `completed`.
+
+Milestones are ordered by explicit position and then creation time. PostgreSQL and the milestone service enforce at most one `current` milestone per project. An empty project reports `Milestones: none configured`; no current, completed, upcoming, or percentage progress is inferred.
+
+Project Intelligence consumes milestones through `MilestoneService` and reports them as project state. Milestones enrich Intelligence but do not independently change project health.
 
 The seed project is temporary development data:
 
@@ -168,7 +178,7 @@ This is deliberately not a full production authorization flow. The GitHub client
 5. Optionally set the complete GitHub development configuration described above.
 6. Run `npm run build && npm start`.
 
-The application registers the global `project status`, `context project`, `reality project`, and `intelligence project` commands at startup and serves `GET /health` on `PORT` (default `3000`).
+The application registers the global `project status`, `context project`, `reality project`, `intelligence project`, and `milestone` commands at startup and serves `GET /health` on `PORT` (default `3000`).
 
 ## Required environment variables
 
@@ -190,11 +200,12 @@ Optional:
 - Context content is not logged. Unauthorized users cannot retrieve project context.
 - Reality values are project-scoped and are not logged. Unauthorized users cannot retrieve or modify project Reality.
 - Intelligence is project-scoped, performs the same authorization before reading source data, and never promotes Context evidence into Reality.
+- Milestone reads and mutations are project-scoped and always authorize through `ProjectService`; Discord handlers never access milestone storage directly.
 - No background polling, continuous synchronization, broad Discord ingestion, or cache is used in this phase.
 
 ## Testing and verification
 
-Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Intelligence tests cover deterministic active, attention, and unknown health; explainable reasons; Reality precedence; labeled Context evidence; unavailable milestones; project isolation; and `/intelligence project` authorization and formatting. Tests never require a live GitHub credential.
+Automated tests use mocked GitHub API responses and cover valid/incomplete configuration, successful authenticated-user and repository reads, unauthorized/not-found/rate-limited/unavailable responses, project linking, protected project access, and Discord status formatting. Context tests cover typed record validation, store filtering and deletion, project authorization, GitHub metadata/README provenance, idempotent ingestion, safe ingestion failure, and `/context project` behavior. Reality tests cover model validation, persistence operations, verification-state updates, supporting-context validation, project isolation, and `/reality project` authorization. Intelligence tests cover deterministic active, attention, and unknown health; explainable reasons; Reality precedence; labeled Context evidence; project isolation; and `/intelligence project` authorization and formatting. Milestone tests cover validation, create/update/status/delete behavior, completion timestamps, deterministic ordering, a single current milestone, authorization, project isolation, Intelligence integration, and milestone command behavior. Tests never require a live GitHub credential.
 
 Run:
 
@@ -214,6 +225,8 @@ Repeated `/context project` calls remained idempotent, and `/reality project` re
 
 Phase 5 runtime verification completed successfully: the application registered `/intelligence project`, connected to Discord, passed its health check, and the authorized Intelligence service ran against the configured GitHub repository and development database. It reported `active` health, `Development` state, a connected repository, the three expected verified Reality facts, one Context evidence record, and an unavailable milestone state. The Discord handler itself is covered by automated command tests; no synthetic Discord interaction was sent during runtime verification.
 
+Persistent milestone runtime verification completed successfully against PostgreSQL using a clearly labeled temporary milestone. It was created, listed, updated, transitioned to current when no conflicting current milestone existed, marked completed with a completion timestamp, included in the Intelligence summary, deleted, and confirmed absent afterward. The bot registered all milestone commands and connected to Discord; mutation handlers are covered by automated command tests, and no synthetic Discord interaction was sent.
+
 ## Intentionally deferred
 
-Not implemented: GitHub App/OAuth onboarding, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, authoritative milestone management, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.
+Not implemented: GitHub App/OAuth onboarding, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, automatic milestone detection, percentage progress, milestone reminders, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.

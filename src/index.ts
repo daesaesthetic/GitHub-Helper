@@ -26,7 +26,8 @@ import {
   handleIntelligenceCommand
 } from "./discord/intelligence-command.js";
 import { MilestoneService } from "./milestones/milestone-service.js";
-import { InMemoryMilestoneStore } from "./milestones/milestone-store.js";
+import { PostgresMilestoneStore } from "./milestones/milestone-store.js";
+import { milestoneCommand, handleMilestoneCommand } from "./discord/milestone-command.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -65,11 +66,12 @@ const getProjectReality = new GetProjectReality(
   reality,
   new ProjectRealityBootstrap(reality)
 );
+const milestones = new MilestoneService(new PostgresMilestoneStore(database), projects);
 const intelligence = new ProjectIntelligenceService(
   projects,
   reality,
   context,
-  new MilestoneService(new InMemoryMilestoneStore(), projects)
+  milestones
 );
 const getProjectIntelligence = new GetProjectIntelligence(intelligence);
 const healthServer = startHealthServer(config.port, logger);
@@ -81,7 +83,7 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand() ||
-      !["project", "context", "reality", "intelligence"].includes(interaction.commandName)) return;
+      !["project", "context", "reality", "intelligence", "milestone"].includes(interaction.commandName)) return;
   try {
     if (interaction.commandName === "project") {
       await handleProjectCommand(interaction, getProjectStatus, logger);
@@ -89,6 +91,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleContextCommand(interaction, getProjectContext, logger);
     } else if (interaction.commandName === "reality") {
       await handleRealityCommand(interaction, getProjectReality, logger);
+    } else if (interaction.commandName === "milestone") {
+      await handleMilestoneCommand(interaction, milestones, logger);
     } else {
       await handleIntelligenceCommand(interaction, getProjectIntelligence, logger);
     }
@@ -110,11 +114,18 @@ async function registerCommands(): Promise<void> {
       projectStatusCommand.toJSON(),
       contextCommand.toJSON(),
       realityCommand.toJSON(),
-      intelligenceCommand.toJSON()
+      intelligenceCommand.toJSON(),
+      milestoneCommand.toJSON()
     ]
   });
   logger.info("discord.commands_registered", {
-    commands: ["project status", "context project", "reality project", "intelligence project"]
+    commands: [
+      "project status",
+      "context project",
+      "reality project",
+      "intelligence project",
+      "milestone list/create/update/status/delete"
+    ]
   });
 }
 

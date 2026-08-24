@@ -9,6 +9,7 @@ import {
 import type { MilestoneQuery, MilestoneStore } from "./milestone-store.js";
 
 export class MilestoneNotFoundError extends Error {}
+export class CurrentMilestoneConflictError extends Error {}
 
 export class MilestoneService {
   constructor(
@@ -21,6 +22,9 @@ export class MilestoneService {
     identity: RequestIdentity
   ): Promise<ProjectMilestone> {
     this.projects.getAccessibleProject(input.projectId, identity);
+    if (input.status === "current") {
+      await this.assertNoCurrentConflict(input.projectId);
+    }
     const milestone = createProjectMilestone({
       ...input,
       id: input.id ?? `milestone:${input.projectId}:${crypto.randomUUID()}`
@@ -61,6 +65,9 @@ export class MilestoneService {
     identity: RequestIdentity
   ): Promise<ProjectMilestone> {
     const existing = await this.getById(id, identity);
+    if (status === "current") {
+      await this.assertNoCurrentConflict(existing.projectId, existing.id);
+    }
     const now = new Date().toISOString();
     return this.store.upsert(createProjectMilestone({
       ...existing,
@@ -83,5 +90,12 @@ export class MilestoneService {
     if (!milestone) throw new MilestoneNotFoundError("Milestone was not found");
     this.projects.getAccessibleProject(milestone.projectId, identity);
     return milestone;
+  }
+
+  private async assertNoCurrentConflict(projectId: string, exceptId?: string): Promise<void> {
+    const current = await this.store.list({ projectId, status: "current" });
+    if (current.some((milestone) => milestone.id !== exceptId)) {
+      throw new CurrentMilestoneConflictError("A project can have only one current milestone");
+    }
   }
 }

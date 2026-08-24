@@ -36,8 +36,16 @@ import { handleRealityCommand } from "../src/discord/reality-command.js";
 import { ProjectIntelligenceService } from "../src/intelligence/project-intelligence-service.js";
 import { GetProjectIntelligence } from "../src/use-cases/project-intelligence.js";
 import { handleIntelligenceCommand } from "../src/discord/intelligence-command.js";
-import { MilestoneService } from "../src/milestones/milestone-service.js";
 import { InMemoryMilestoneStore } from "../src/milestones/milestone-store.js";
+import {
+  MilestoneValidationError,
+  createProjectMilestone
+} from "../src/milestones/milestone.js";
+import {
+  CurrentMilestoneConflictError,
+  MilestoneService
+} from "../src/milestones/milestone-service.js";
+import { handleMilestoneCommand } from "../src/discord/milestone-command.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
@@ -657,19 +665,29 @@ test("project intelligence represents established milestone data without derivin
       id: "milestone-current",
       projectId: project.id,
       title: "Project Intelligence Foundation",
-      status: "current"
+      status: "current",
+      position: 0,
+      createdAt: "2026-08-23T00:00:00.000Z",
+      updatedAt: "2026-08-23T00:00:00.000Z"
     },
     {
       id: "milestone-completed",
       projectId: project.id,
       title: "Reality Layer Foundation",
-      status: "completed"
+      status: "completed",
+      position: 1,
+      createdAt: "2026-08-22T00:00:00.000Z",
+      updatedAt: "2026-08-22T00:00:00.000Z",
+      completedAt: "2026-08-22T00:00:00.000Z"
     },
     {
       id: "milestone-upcoming",
       projectId: project.id,
       title: "Milestone Management",
-      status: "upcoming"
+      status: "upcoming",
+      position: 2,
+      createdAt: "2026-08-24T00:00:00.000Z",
+      updatedAt: "2026-08-24T00:00:00.000Z"
     }
   ]), projects);
   const result = await new ProjectIntelligenceService(projects, reality, context, milestones)
@@ -775,6 +793,202 @@ test("/intelligence project rejects unauthorized users safely", async () => {
   await handleIntelligenceCommand(interaction, useCase, createLogger());
   assert.deepEqual(response, {
     content: "You are not authorized to view this project intelligence.",
+    ephemeral: true
+  });
+});
+
+test("milestones validate explicit identity, status, and position", () => {
+  const milestone = createProjectMilestone({
+    id: "milestone-validation",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    title: "Persistent milestones",
+    status: "upcoming",
+    position: 2
+  });
+  assert.equal(milestone.position, 2);
+  assert.throws(
+    () => createProjectMilestone({
+      ...milestone,
+      id: "invalid-status",
+      status: "invalid" as never
+    }),
+    MilestoneValidationError
+  );
+  assert.throws(
+    () => createProjectMilestone({
+      ...milestone,
+      id: "invalid-position",
+      position: -1
+    }),
+    MilestoneValidationError
+  );
+});
+
+test("milestone service persists explicit lifecycle changes in deterministic order", async () => {
+  const service = new MilestoneService(new InMemoryMilestoneStore(), projectService);
+  const upcoming = await service.create({
+    id: "milestone-upcoming",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    title: "Persistent milestones",
+    status: "upcoming",
+    position: 2
+  }, { userId: ownerId });
+  const current = await service.create({
+    id: "milestone-current",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    title: "Project Intelligence",
+    status: "current",
+    position: 1
+  }, { userId: ownerId });
+  assert.deepEqual(
+    (await service.getProjectMilestones(DEVELOPMENT_PROJECT_ID, { userId: ownerId }))
+      .map((milestone) => milestone.id),
+    [current.id, upcoming.id]
+  );
+  const updated = await service.update(upcoming.id, {
+    title: "Persistent project milestones",
+    position: 0
+  }, { userId: ownerId });
+  assert.equal(updated.title, "Persistent project milestones");
+  const completed = await service.changeStatus(current.id, "completed", { userId: ownerId });
+  assert.equal(completed.status, "completed");
+  assert.ok(completed.completedAt);
+  assert.equal(await service.remove(upcoming.id, { userId: ownerId }), true);
+  assert.deepEqual(
+    (await service.getProjectMilestones(DEVELOPMENT_PROJECT_ID, { userId: ownerId }))
+      .map((milestone) => milestone.id),
+    [current.id]
+  );
+});
+
+test("milestone service prevents conflicting current milestones", async () => {
+  const service = new MilestoneService(new InMemoryMilestoneStore(), projectService);
+  await service.create({
+    id: "milestone-first-current",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    title: "Current milestone",
+    status: "current"
+  }, { userId: ownerId });
+  await assert.rejects(
+    () => service.create({
+      id: "milestone-second-current",
+      projectId: DEVELOPMENT_PROJECT_ID,
+      title: "Conflicting milestone",
+      status: "current"
+    }, { userId: ownerId }),
+    CurrentMilestoneConflictError
+  );
+});
+
+test("milestone service enforces project isolation for reads and mutations", async () => {
+  const projectA = createSeedProject(ownerId);
+  const projectB = { ...createSeedProject("owner-456"), id: "milestone-project-b" };
+  const projects = new ProjectService({
+    findById: (id) => id === projectA.id ? projectA : id === projectB.id ? projectB : undefined
+  });
+  const service = new MilestoneService(new InMemoryMilestoneStore(), projects);
+  const milestone = await service.create({
+    id: "milestone-project-b-item",
+    projectId: projectB.id,
+    title: "Private milestone",
+    status: "upcoming"
+  }, { userId: "owner-456" });
+  await assert.rejects(
+    () => service.getProjectMilestones(projectB.id, { userId: ownerId }),
+    ProjectAccessDeniedError
+  );
+  await assert.rejects(
+    () => service.update(milestone.id, { title: "Changed" }, { userId: ownerId }),
+    ProjectAccessDeniedError
+  );
+  await assert.rejects(
+    () => service.remove(milestone.id, { userId: ownerId }),
+    ProjectAccessDeniedError
+  );
+});
+
+test("project intelligence consumes explicitly stored milestone state without changing health", async () => {
+  const project = createSeedProject(ownerId);
+  const projects = new ProjectService(new InMemoryProjectRepository(project));
+  const context = new ContextService(new InMemoryContextStore(), projects);
+  const reality = new RealityService(new InMemoryRealityStore(), projects, context);
+  const milestones = new MilestoneService(new InMemoryMilestoneStore(), projects);
+  await milestones.create({
+    id: "milestone-intelligence-current",
+    projectId: project.id,
+    title: "Persistent milestones",
+    status: "current",
+    position: 0
+  }, { userId: ownerId });
+  await milestones.create({
+    id: "milestone-intelligence-upcoming",
+    projectId: project.id,
+    title: "Milestone reporting",
+    status: "upcoming",
+    position: 1
+  }, { userId: ownerId });
+  const result = await new ProjectIntelligenceService(projects, reality, context, milestones)
+    .getProjectIntelligence(project.id, { userId: ownerId });
+  assert.deepEqual(result.milestone, {
+    status: "established",
+    current: "Persistent milestones",
+    completed: [],
+    upcoming: ["Milestone reporting"]
+  });
+  assert.equal(result.health.state, "attention");
+});
+
+test("/milestone commands create, list, and reject unauthorized access safely", async () => {
+  const service = new MilestoneService(new InMemoryMilestoneStore(), projectService);
+  let response: unknown;
+  const values = new Map<string, string>([
+    ["project", DEVELOPMENT_PROJECT_ID],
+    ["title", "Persistent milestones"],
+    ["status", "upcoming"]
+  ]);
+  const createInteraction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: {
+      getSubcommand: () => "create",
+      getString: (name: string) => values.get(name) ?? null,
+      getInteger: () => null
+    },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleMilestoneCommand(createInteraction, service, createLogger());
+  assert.match(String(response), /Milestone created/);
+
+  const listInteraction = {
+    user: { id: ownerId, username: "owner", globalName: "Owner" },
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: {
+      getSubcommand: () => "list",
+      getString: (name: string) => name === "project" ? DEVELOPMENT_PROJECT_ID : null,
+      getInteger: () => null
+    },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleMilestoneCommand(listInteraction, service, createLogger());
+  assert.match(String(response), /Persistent milestones/);
+
+  const unauthorizedInteraction = {
+    user: { id: "other-user", username: "other", globalName: "Other" }
+    ,
+    guildId: "guild-1",
+    channelId: "channel-1",
+    options: {
+      getSubcommand: () => "list",
+      getString: (name: string) => name === "project" ? DEVELOPMENT_PROJECT_ID : null,
+      getInteger: () => null
+    },
+    reply: async (value: unknown) => { response = value; }
+  } as never;
+  await handleMilestoneCommand(unauthorizedInteraction, service, createLogger());
+  assert.deepEqual(response, {
+    content: "You are not authorized to manage milestones for this project.",
     ephemeral: true
   });
 });
