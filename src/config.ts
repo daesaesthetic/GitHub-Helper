@@ -8,6 +8,8 @@ export interface AppConfig {
 }
 
 export interface GitHubAppConfig {
+  appId: number;
+  privateKey: string;
   clientId: string;
   clientSecret: string;
   slug: string;
@@ -64,6 +66,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   }
 
   const appValues = [
+    env.GITHUB_APP_ID,
+    env.GITHUB_APP_PRIVATE_KEY,
     env.GITHUB_APP_CLIENT_ID,
     env.GITHUB_APP_CLIENT_SECRET,
     env.GITHUB_APP_SLUG,
@@ -71,13 +75,15 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   ].map((value) => value?.trim()).filter(Boolean);
   let githubApp: GitHubAppConfig | undefined;
   if (appValues.length > 0) {
+    const appId = Number(env.GITHUB_APP_ID?.trim());
+    const privateKey = env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, "\n").trim();
     const clientId = env.GITHUB_APP_CLIENT_ID?.trim();
     const clientSecret = env.GITHUB_APP_CLIENT_SECRET?.trim();
     const slug = env.GITHUB_APP_SLUG?.trim();
     const callbackUrl = env.GITHUB_APP_CALLBACK_URL?.trim();
-    if (!clientId || !clientSecret || !slug || !callbackUrl) {
+    if (!Number.isSafeInteger(appId) || appId < 1 || !privateKey || !clientId || !clientSecret || !slug || !callbackUrl) {
       throw new ConfigurationError(
-        "GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET, GITHUB_APP_SLUG, and GITHUB_APP_CALLBACK_URL are required together"
+        "Complete GitHub App configuration is required to enable App authorization"
       );
     }
     try {
@@ -86,7 +92,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     } catch {
       throw new ConfigurationError("GITHUB_APP_CALLBACK_URL must be an HTTPS URL");
     }
-    githubApp = { clientId, clientSecret, slug, callbackUrl };
+    if (!privateKey.includes("-----BEGIN")) throw new ConfigurationError("GitHub App private key configuration is invalid");
+    githubApp = { appId, privateKey, clientId, clientSecret, slug, callbackUrl };
   }
 
   return {

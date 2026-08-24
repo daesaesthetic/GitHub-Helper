@@ -40,6 +40,7 @@ import {
   GitHubIdentityService, GitHubRepositoryAssociationService
 } from "./github-connections/github-connection-services.js";
 import { GitHubAppService } from "./github-connections/github-app-service.js";
+import { GitHubAppAuthenticator } from "./github-connections/github-app-authenticator.js";
 
 const logger = createLogger();
 let config: AppConfig;
@@ -111,6 +112,8 @@ const githubApp = new GitHubAppService(
   githubConnections,
   githubAssociations,
   projects
+  , fetch,
+  new GitHubAppAuthenticator(config.githubApp)
 );
 const healthServer = startHealthServer(config.port, logger, {
   async handle(url) {
