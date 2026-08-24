@@ -68,6 +68,27 @@ export interface RepositoryDevelopmentSummary {
   reason?: GitHubUnavailable["reason"];
 }
 
+export interface RepositoryDevelopmentTrends {
+  status: "available" | "unavailable";
+  window: {
+    start: string;
+    end: string;
+    durationSeconds: number;
+  };
+  coverage: "bounded" | "unavailable";
+  classification: "active" | "quiet" | "unavailable";
+  activityPresent: boolean;
+  observed?: {
+    commits: number;
+    issues: number;
+    pullRequests: number;
+    openIssues: number;
+    openPullRequests: number;
+  };
+  retrievedAt?: string;
+  reason?: GitHubUnavailable["reason"];
+}
+
 export interface ProjectIntelligenceResult {
   project: Pick<Project, "id" | "name" | "description">;
   state: {
@@ -77,6 +98,7 @@ export interface ProjectIntelligenceResult {
   github: GitHubStatus;
   activity: GitHubRepositoryActivityStatus;
   development: RepositoryDevelopmentSummary;
+  trends: RepositoryDevelopmentTrends;
   verifiedFacts: RealityRecord[];
   supportingEvidence: IntelligenceEvidence[];
   milestone: MilestoneSummary;

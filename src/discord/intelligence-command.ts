@@ -68,6 +68,9 @@ function formatIntelligence(result: Awaited<ReturnType<GetProjectIntelligence["e
     "**GitHub Development**",
     formatDevelopment(result),
     "",
+    "**Development Trends**",
+    formatTrends(result),
+    "",
     "**Verified Reality**",
     ...(result.verifiedFacts.length > 0
       ? result.verifiedFacts.map((fact) => `- ${fact.factType}: ${formatValue(fact.value)}`)
@@ -122,6 +125,26 @@ function formatAge(ageSeconds: number): string {
   if (ageSeconds < 3600) return `${Math.floor(ageSeconds / 60)}m`;
   if (ageSeconds < 86400) return `${Math.floor(ageSeconds / 3600)}h`;
   return `${Math.floor(ageSeconds / 86400)}d`;
+}
+
+function formatTrends(result: Awaited<ReturnType<GetProjectIntelligence["execute"]>>): string {
+  const trends = result.trends;
+  const windowDays = Math.round(trends.window.durationSeconds / 86400);
+  if (trends.status === "unavailable") {
+    return [
+      `- Window: last ${windowDays} days`,
+      "- Activity: unavailable",
+      `- Reason: ${trends.reason}`
+    ].join("\n");
+  }
+  return [
+    `- Window: last ${windowDays} days`,
+    `- Commits observed: ${trends.observed!.commits}`,
+    `- Issues observed: ${trends.observed!.issues}`,
+    `- Pull requests observed: ${trends.observed!.pullRequests}`,
+    `- Activity: ${trends.classification}`,
+    `- Coverage: ${trends.coverage}`
+  ].join("\n");
 }
 
 function formatTimestamp(timestamp: string): string {

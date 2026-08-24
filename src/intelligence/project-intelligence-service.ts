@@ -15,8 +15,11 @@ import type {
   IntelligenceReason,
   MilestoneSummary,
   ProjectIntelligenceResult,
-  RepositoryDevelopmentSummary
+  RepositoryDevelopmentSummary,
+  RepositoryDevelopmentTrends
 } from "./intelligence.js";
+
+export const DEFAULT_TRENDS_WINDOW_SECONDS = 30 * 24 * 60 * 60;
 
 export class ProjectIntelligenceService {
   constructor(
@@ -54,6 +57,7 @@ export class ProjectIntelligenceService {
       github,
       activity,
       development: getDevelopmentSummary(github, activity, this.now),
+      trends: getDevelopmentTrends(activity, this.now),
       verifiedFacts,
       supportingEvidence: contextRecords.map(toEvidence),
       milestone,
@@ -61,6 +65,54 @@ export class ProjectIntelligenceService {
       generatedAt
     };
   }
+}
+
+function getDevelopmentTrends(
+  activity: ProjectIntelligenceResult["activity"],
+  now: () => Date
+): RepositoryDevelopmentTrends {
+  const end = now();
+  const start = new Date(end.getTime() - DEFAULT_TRENDS_WINDOW_SECONDS * 1000);
+  const window = {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    durationSeconds: DEFAULT_TRENDS_WINDOW_SECONDS
+  };
+  if (!activity.connected) {
+    return {
+      status: "unavailable",
+      window,
+      coverage: "unavailable",
+      classification: "unavailable",
+      activityPresent: false,
+      reason: activity.reason
+    };
+  }
+
+  const inWindow = (timestamp: string) => {
+    const time = Date.parse(timestamp);
+    return !Number.isNaN(time) && time >= start.getTime() && time <= end.getTime();
+  };
+  const commits = activity.commits.filter((commit) => inWindow(commit.timestamp));
+  const issues = activity.issues.filter((issue) => inWindow(issue.updatedAt));
+  const pullRequests = activity.pullRequests.filter((pullRequest) => inWindow(pullRequest.updatedAt));
+  const observed = {
+    commits: commits.length,
+    issues: issues.length,
+    pullRequests: pullRequests.length,
+    openIssues: issues.filter((issue) => issue.state.toLowerCase() === "open").length,
+    openPullRequests: pullRequests.filter((pullRequest) => pullRequest.state.toLowerCase() === "open").length
+  };
+  const activityPresent = observed.commits + observed.issues + observed.pullRequests > 0;
+  return {
+    status: "available",
+    window,
+    coverage: "bounded",
+    classification: activityPresent ? "active" : "unavailable",
+    activityPresent,
+    observed,
+    retrievedAt: activity.retrievedAt
+  };
 }
 
 function getDevelopmentSummary(

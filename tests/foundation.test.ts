@@ -1285,6 +1285,13 @@ test("project intelligence presents GitHub activity without changing Reality, mi
           message: "Add activity intelligence",
           author: { name: "Octocat", date: "2026-08-23T12:00:00Z" }
         }
+      }, {
+        sha: "old-sha",
+        html_url: "https://github.com/octocat/hello-world/commit/old-sha",
+        commit: {
+          message: "Old activity",
+          author: { name: "Octocat", date: "2026-07-01T12:00:00Z" }
+        }
       }]);
     }
     if (url.includes("/issues?")) {
@@ -1344,6 +1351,22 @@ test("project intelligence presents GitHub activity without changing Reality, mi
   assert.equal(result.development.activity.openIssueCount, 1);
   assert.equal(result.development.activity.openPullRequestCount, 1);
   assert.equal(result.development.activity.latestCommit?.ageSeconds, 61200);
+  assert.deepEqual(result.trends.window, {
+    start: "2026-07-25T05:00:00.000Z",
+    end: "2026-08-24T05:00:00.000Z",
+    durationSeconds: 2592000
+  });
+  assert.equal(result.trends.status, "available");
+  assert.equal(result.trends.coverage, "bounded");
+  assert.equal(result.trends.classification, "active");
+  assert.equal(result.trends.activityPresent, true);
+  assert.deepEqual(result.trends.observed, {
+    commits: 1,
+    issues: 1,
+    pullRequests: 1,
+    openIssues: 1,
+    openPullRequests: 1
+  });
   assert.equal(result.verifiedFacts.length, 0);
   assert.equal(result.milestone.status, "unavailable");
   assert.equal(result.health.state, "active");
@@ -1359,6 +1382,9 @@ test("project intelligence presents GitHub activity without changing Reality, mi
   } as never;
   await handleIntelligenceCommand(interaction, useCase, createLogger());
    assert.match(response, /\*\*GitHub Development\*\*/);
+  assert.match(response, /\*\*Development Trends\*\*/);
+  assert.match(response, /Window: last 30 days/);
+  assert.match(response, /Coverage: bounded/);
   assert.match(response, /Recent commits: 1/);
   assert.match(response, /Latest commit: Add activity intelligence/);
 });
@@ -1393,6 +1419,8 @@ test("project intelligence keeps empty development activity distinct from unavai
     .getProjectIntelligence(project.id, { userId: ownerId });
   assert.equal(unavailable.development.status, "available");
   assert.deepEqual(unavailable.development.activity, { status: "unavailable", reason: "unavailable" });
+  assert.equal(unavailable.trends.status, "unavailable");
+  assert.equal(unavailable.trends.classification, "unavailable");
   assert.equal(unavailable.health.state, "active");
 });
 
