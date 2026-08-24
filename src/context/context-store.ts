@@ -74,10 +74,8 @@ export class PostgresContextStore implements ContextStore {
         id, project_id, scope, source_type, source_identity, content, metadata, provenance,
         created_at, updated_at, source_timestamp
       ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::timestamptz, $10::timestamptz, $11::timestamptz)
-      ON CONFLICT (id) DO UPDATE SET
-        scope = EXCLUDED.scope,
-        source_type = EXCLUDED.source_type,
-        source_identity = EXCLUDED.source_identity,
+       ON CONFLICT (project_id, source_type, source_identity) DO UPDATE SET
+         scope = EXCLUDED.scope,
         content = EXCLUDED.content,
         metadata = EXCLUDED.metadata,
         provenance = EXCLUDED.provenance,

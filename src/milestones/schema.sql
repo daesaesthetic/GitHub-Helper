@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS project_milestones (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT,
   status TEXT NOT NULL CHECK (status IN ('current', 'upcoming', 'completed')),

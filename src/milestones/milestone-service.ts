@@ -30,7 +30,7 @@ export class MilestoneService {
       ...input,
       id: input.id ?? `milestone:${input.projectId}:${crypto.randomUUID()}`
     });
-    return this.store.upsert(milestone);
+    return this.upsertSafely(milestone);
   }
 
   async getProjectMilestones(
@@ -47,7 +47,7 @@ export class MilestoneService {
     identity: RequestIdentity
   ): Promise<ProjectMilestone> {
     const existing = await this.getById(id, identity);
-    return this.store.upsert(createProjectMilestone({
+    return this.upsertSafely(createProjectMilestone({
       id: existing.id,
       projectId: existing.projectId,
       title: changes.title ?? existing.title,
@@ -70,7 +70,7 @@ export class MilestoneService {
       await this.assertNoCurrentConflict(existing.projectId, existing.id);
     }
     const now = new Date().toISOString();
-    return this.store.upsert(createProjectMilestone({
+    return this.upsertSafely(createProjectMilestone({
       ...existing,
       status,
       position: existing.position,
@@ -97,6 +97,24 @@ export class MilestoneService {
     const current = await this.store.list({ projectId, status: "current" });
     if (current.some((milestone) => milestone.id !== exceptId)) {
       throw new CurrentMilestoneConflictError("A project can have only one current milestone");
+    }
+  }
+
+  private async upsertSafely(milestone: ProjectMilestone): Promise<ProjectMilestone> {
+    try {
+      return await this.store.upsert(milestone);
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "23505" &&
+        "constraint" in error &&
+        error.constraint === "project_milestones_one_current_idx"
+      ) {
+        throw new CurrentMilestoneConflictError("A project can have only one current milestone");
+      }
+      throw error;
     }
   }
 }

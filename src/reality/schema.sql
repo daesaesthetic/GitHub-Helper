@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS reality_records (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   fact_type TEXT NOT NULL CHECK (fact_type IN (
     'project_identity', 'project_status', 'github_repository'
   )),

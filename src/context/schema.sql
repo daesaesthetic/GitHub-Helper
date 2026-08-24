@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS context_records (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   scope TEXT NOT NULL CHECK (scope IN (
     'user', 'project', 'repository', 'discord_guild', 'discord_channel', 'conversation'
   )),

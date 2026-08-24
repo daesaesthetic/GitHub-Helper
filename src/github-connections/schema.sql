@@ -33,7 +33,7 @@ CREATE INDEX IF NOT EXISTS github_connections_account_idx ON github_connections 
 
 CREATE TABLE IF NOT EXISTS project_github_repositories (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   connection_id TEXT NOT NULL REFERENCES github_connections(id) ON DELETE RESTRICT,
   repository_id BIGINT NOT NULL,
   owner TEXT NOT NULL,

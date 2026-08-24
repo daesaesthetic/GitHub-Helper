@@ -1,2 +1,3 @@
 - [Discord input normalization](discord-input-normalization.md) — accept common pasted GitHub URLs and store canonical repository references.
 - [Project name resolution](project-name-resolution.md) — resolve names safely at the project authorization boundary.
+- [Replit schema workflow](replit-schema-workflow.md) — use Replit’s post-merge/Publish schema flow instead of custom startup or production migration runners.

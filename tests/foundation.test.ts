@@ -22,7 +22,7 @@ import {
   createContextRecord,
   isSecretBearingPath
 } from "../src/context/context.js";
-import { InMemoryContextStore } from "../src/context/context-store.js";
+import { InMemoryContextStore, PostgresContextStore } from "../src/context/context-store.js";
 import { ContextService } from "../src/context/context-service.js";
 import { GitHubContextIngestionService } from "../src/context/github-context-ingestion-service.js";
 import { GetProjectContext } from "../src/use-cases/project-context.js";
@@ -1095,6 +1095,40 @@ test("context store filters records and supports deletion", async () => {
   assert.equal((await store.list({ projectId: DEVELOPMENT_PROJECT_ID })).length, 1);
 });
 
+test("postgres Context upsert uses the declared source identity", async () => {
+  let queryText = "";
+  const pool = {
+    query: async (query: string) => {
+      queryText = query;
+      return {
+        rows: [{
+          id: "context-identity",
+          project_id: DEVELOPMENT_PROJECT_ID,
+          scope: "project",
+          source_type: "user_authored",
+          source_identity: "decision:1",
+          content: "Decision",
+          metadata: {},
+          provenance: {},
+          created_at: new Date("2026-01-01T00:00:00.000Z"),
+          updated_at: new Date("2026-01-01T00:00:00.000Z"),
+          source_timestamp: null
+        }]
+      };
+    }
+  };
+  await new PostgresContextStore(pool as never).upsert(createContextRecord({
+    id: "context-identity",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    scope: "project",
+    sourceType: "user_authored",
+    sourceIdentity: "decision:1",
+    content: "Decision",
+    provenance: {}
+  }));
+  assert.match(queryText, /ON CONFLICT \(project_id, source_type, source_identity\)/);
+});
+
 test("context retrieval enforces project authorization", async () => {
   const store = new InMemoryContextStore();
   const service = new ContextService(store, projectService);
@@ -1832,6 +1866,24 @@ test("milestone service prevents conflicting current milestones", async () => {
       id: "milestone-second-current",
       projectId: DEVELOPMENT_PROJECT_ID,
       title: "Conflicting milestone",
+      status: "current"
+    }, { userId: ownerId }),
+    CurrentMilestoneConflictError
+  );
+});
+
+test("milestone service normalizes the PostgreSQL current-milestone constraint", async () => {
+  const store = {
+    list: async () => [],
+    upsert: async () => {
+      throw { code: "23505", constraint: "project_milestones_one_current_idx" };
+    }
+  };
+  const service = new MilestoneService(store as never, projectService);
+  await assert.rejects(
+    () => service.create({
+      projectId: DEVELOPMENT_PROJECT_ID,
+      title: "Concurrent current milestone",
       status: "current"
     }, { userId: ownerId }),
     CurrentMilestoneConflictError
