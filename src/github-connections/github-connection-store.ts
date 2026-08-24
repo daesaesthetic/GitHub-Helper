@@ -28,7 +28,11 @@ export interface ProjectGitHubRepositoryStore {
 }
 export interface GitHubAuthorizationStateStore {
   create(state: GitHubAuthorizationState): Promise<GitHubAuthorizationState>;
-  consume(stateNonce: string, now: Date): Promise<GitHubAuthorizationState | undefined>;
+  consume(
+    stateNonce: string,
+    discordAccountId: string,
+    now: Date
+  ): Promise<GitHubAuthorizationState | undefined>;
   find(stateNonce: string): Promise<GitHubAuthorizationState | undefined>;
 }
 
@@ -74,7 +78,18 @@ export class InMemoryGitHubAuthorizationStateStore implements GitHubAuthorizatio
   private readonly records = new Map<string, GitHubAuthorizationState>();
   async create(record: GitHubAuthorizationState) { this.records.set(record.stateNonce, record); return record; }
   async find(nonce: string) { return this.records.get(nonce); }
-  async consume(nonce: string, now: Date) { const record = this.records.get(nonce); if (!record || record.consumedAt || new Date(record.expiresAt) <= now) return undefined; const consumed = { ...record, consumedAt: now.toISOString() }; this.records.set(nonce, consumed); return consumed; }
+  async consume(nonce: string, accountId: string, now: Date) {
+    const record = this.records.get(nonce);
+    if (
+      !record ||
+      record.discordAccountId !== accountId ||
+      record.consumedAt ||
+      new Date(record.expiresAt) <= now
+    ) return undefined;
+    const consumed = { ...record, consumedAt: now.toISOString() };
+    this.records.set(nonce, consumed);
+    return consumed;
+  }
 }
 
 interface BaseRow { id: string; created_at: Date; updated_at: Date; }
@@ -118,6 +133,6 @@ export class PostgresGitHubAuthorizationStateStore implements GitHubAuthorizatio
   constructor(private readonly pool: Pool) {}
   async create(r:GitHubAuthorizationState){const q=await this.pool.query("INSERT INTO github_authorization_states (id,discord_account_id,state_nonce,expires_at,consumed_at,operation,project_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",[r.id,r.discordAccountId,r.stateNonce,r.expiresAt,r.consumedAt??null,r.operation,r.projectId??null,r.createdAt]);return toState(q.rows[0]);}
   async find(nonce:string){const q=await this.pool.query("SELECT * FROM github_authorization_states WHERE state_nonce=$1",[nonce]);return q.rows[0]?toState(q.rows[0]):undefined;}
-  async consume(nonce:string,now:Date){const q=await this.pool.query("UPDATE github_authorization_states SET consumed_at=$1 WHERE state_nonce=$2 AND consumed_at IS NULL AND expires_at>$1 RETURNING *",[now.toISOString(),nonce]);return q.rows[0]?toState(q.rows[0]):undefined;}
+  async consume(nonce:string,accountId:string,now:Date){const q=await this.pool.query("UPDATE github_authorization_states SET consumed_at=$1 WHERE state_nonce=$2 AND discord_account_id=$3 AND consumed_at IS NULL AND expires_at>$1 RETURNING *",[now.toISOString(),nonce,accountId]);return q.rows[0]?toState(q.rows[0]):undefined;}
 }
 function toState(r:any):GitHubAuthorizationState{return{id:r.id,discordAccountId:r.discord_account_id,stateNonce:r.state_nonce,expiresAt:r.expires_at.toISOString(),consumedAt:r.consumed_at?.toISOString(),operation:r.operation,projectId:r.project_id??undefined,createdAt:r.created_at.toISOString()};}

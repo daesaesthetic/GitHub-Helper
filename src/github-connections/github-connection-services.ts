@@ -88,10 +88,10 @@ export class AuthorizationStateService {
     return this.store.create(createAuthorizationState({ ...input, discordAccountId: account.id }));
   }
   async consume(nonce: string, identity: RequestIdentity) {
-    const state = await this.store.consume(nonce, new Date());
-    if (!state) throw new GitHubAuthorizationStateError("Authorization state is invalid, expired, or already used");
     const account = await this.accounts.findByDiscordUserId(identity.userId);
-    if (!account || account.id !== state.discordAccountId) throw new GitHubAuthorizationStateError("Authorization state owner mismatch");
+    if (!account) throw new GitHubAuthorizationStateError("Authorization state owner mismatch");
+    const state = await this.store.consume(nonce, account.id, new Date());
+    if (!state) throw new GitHubAuthorizationStateError("Authorization state is invalid, expired, already used, or owned by another user");
     return state;
   }
 }

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, Phase 3 Context Engine foundation, Phase 4 Reality Layer foundation, Phase 5 Project Intelligence foundation, persistent project milestones, and bounded GitHub Activity Intelligence.
+This is a Discord-native developer intelligence platform. The current implementation includes the Phase 1 foundation, Phase 2 GitHub integration foundation, Phase 3 Context Engine foundation, Phase 4 Reality Layer foundation, Phase 5 Project Intelligence foundation, persistent project milestones, bounded GitHub Activity Intelligence, and a durable GitHub connection foundation for future user-owned access.
 
 ## Current architecture
 
@@ -10,7 +10,7 @@ The application is a TypeScript modular monolith:
 
 `Discord interaction → identity extraction → command handler → application use case → ProjectIntelligenceService / ProjectService / MilestoneService / GitHubActivityService → ContextService / RealityService / GitHub service → ContextStore / RealityStore / MilestoneStore / GitHub client → PostgreSQL / GitHub API`
 
-The HTTP layer exposes `/health` for operational diagnostics. The project repository remains in memory; Context Engine, Reality Layer, and project milestones are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access persistence directly.
+The HTTP layer exposes `/health` for operational diagnostics. The project repository remains an in-memory deterministic development seed; Context Engine, Reality Layer, milestones, and the new GitHub connection foundation are stored durably in the provisioned PostgreSQL database. Discord commands never construct GitHub API requests or access persistence directly.
 
 ## Technology stack
 
@@ -183,6 +183,56 @@ The configured owner, repository, and optional repository ID are stored as a str
 
 This is deliberately not a full production authorization flow. The GitHub client/service boundary can later be backed by a GitHub App or OAuth user authorization without changing Discord command behavior.
 
+## Durable GitHub connection foundation
+
+The application now has persistence and service boundaries for future user-owned GitHub App authorization. No browser authorization, App installation onboarding, token exchange, token refresh, or Discord connection command is implemented in this phase.
+
+### Durable identity and association model
+
+The foundation separates the following concepts:
+
+- A `discord_accounts` record holds a stable Discord user ID used for future account linking. It does not replace `Project.ownerId` or ProjectService authorization.
+- A `github_identities` record holds the authoritative numeric GitHub user ID and current login. GitHub login is descriptive metadata and may be updated; no token is stored in this record.
+- A `github_connections` record represents a future GitHub App connection or installation. It refers separately to the Discord account, GitHub identity, optional numeric installation ID, account/organization metadata, permission state, and lifecycle status.
+- A `project_github_repositories` record associates one project with one GitHub repository connection. Numeric GitHub repository ID is authoritative; owner/name and URL are descriptive metadata for display and routing.
+- A `github_authorization_states` record supports a future browser flow with a random state nonce, Discord account binding, intended operation, optional project, expiry, and single-use consumption.
+
+Connection records contain no access token, refresh token, GitHub App private key, or authorization code. The foundation does not fabricate connection records for the development token.
+
+### Credential resolution
+
+`GitHubCredentialResolver` establishes the future credential-selection boundary. It authorizes the project through ProjectService before returning any result, and gives an active connection owned by that Discord user precedence over the development token:
+
+1. An active user-owned project connection
+2. The existing `GITHUB_TOKEN` development fallback
+3. Unavailable
+
+The existing project has no user-owned connection flow yet, so production connection credentials cannot be minted in this phase. A returned user-owned connection is intentionally credential-free until the future GitHub App authorization task supplies short-lived installation tokens. The development token remains the only executable GitHub API credential and stays confined to configuration and the existing GitHub client/service boundary.
+
+### Authorization and isolation
+
+Connection and repository-association services check ownership below the Discord command layer:
+
+- Project authorization remains exclusively in ProjectService.
+- A Discord user can retrieve or change only their own GitHub connection.
+- A project association can be created only by its authorized project owner using that owner’s active connection.
+- Resolving a project credential always checks project ownership first.
+- A repository association cannot authorize another project or Discord user.
+
+### Persistence
+
+The GitHub connection schema source is `src/github-connections/schema.sql`. It creates only the following tables:
+
+- `discord_accounts`
+- `github_identities`
+- `github_connections`
+- `project_github_repositories`
+- `github_authorization_states`
+
+Important constraints include unique Discord user IDs, unique numeric GitHub user IDs, unique installation IDs when supplied, one repository association per project, a unique connection/repository pair, state nonce uniqueness, lifecycle status checks, foreign keys from connections to durable accounts/identities, and a partial expiry index for unconsumed authorization states.
+
+The project model itself remains the existing deterministic in-memory seed. The association tables use stable project IDs, allowing durable connection data to be introduced without creating a competing project authorization system. Persisting a full mutable project catalog remains a separate future decision.
+
 ## Running locally
 
 1. Install dependencies with `npm install`.
@@ -216,6 +266,7 @@ Optional:
 - Intelligence is project-scoped, performs the same authorization before reading source data, and never promotes Context evidence into Reality.
 - GitHub activity is project-scoped, bounded, read-only, and retrieved only after project authorization. It never exposes GitHub credentials or raw API errors.
 - Milestone reads and mutations are project-scoped and always authorize through `ProjectService`; Discord handlers never access milestone storage directly.
+- GitHub connection records never store raw GitHub credentials. Authorization-state nonces use Node cryptographic randomness, expire, and can be consumed only once. User-owned connections and repository associations are checked against the requesting Discord user at the service boundary.
 - No background polling, continuous synchronization, broad Discord ingestion, or cache is used in this phase.
 
 ## Testing and verification
@@ -246,4 +297,4 @@ GitHub Activity Intelligence runtime verification completed successfully against
 
 ## Intentionally deferred
 
-Not implemented: GitHub App/OAuth onboarding, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, automatic milestone detection, percentage progress, milestone reminders, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.
+Not implemented: GitHub App/OAuth browser onboarding, App configuration, OAuth callback, installation onboarding, token exchange/refresh, Discord GitHub connection commands, repository-selection UI, webhooks, commits, issues, pull requests, branches, file edits, releases, Actions, deployments, repository synchronization, automatic milestone detection, percentage progress, milestone reminders, embeddings, vector search, semantic search, AI summaries, AI memory extraction, Developer Vault, broad Discord ingestion, full repository indexing, desktop functionality, Replit integration, autonomous agents, and destructive GitHub operations.

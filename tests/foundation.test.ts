@@ -166,6 +166,10 @@ test("authorization state is cryptographically random, expires, binds users, and
     ttlMs: 60_000
   });
   assert.ok(state.stateNonce.length >= 32);
+  await assert.rejects(
+    () => service.consume(state.stateNonce, { userId: "other-user" }),
+    GitHubAuthorizationStateError
+  );
   const consumed = await service.consume(state.stateNonce, { userId: ownerId });
   assert.equal(consumed.projectId, DEVELOPMENT_PROJECT_ID);
   await assert.rejects(
@@ -220,7 +224,10 @@ test("credential resolution prefers an owned connection and falls back to develo
   assert.equal((await resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).source, "user_owned_connection");
   await connectionService.setStatus(connection.id, "revoked", { userId: ownerId });
   assert.equal((await resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).source, "development_token");
-  assert.equal((await resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: "other-user" })).source, "unavailable");
+  await assert.rejects(
+    () => resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: "other-user" }),
+    ProjectAccessDeniedError
+  );
 });
 
 test("extracts Discord user, guild, and channel identity", () => {
