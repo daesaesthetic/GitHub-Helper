@@ -4,6 +4,14 @@ export interface AppConfig {
   port: number;
   authorizedUserId?: string;
   github?: GitHubConfig;
+  githubApp?: GitHubAppConfig;
+}
+
+export interface GitHubAppConfig {
+  clientId: string;
+  clientSecret: string;
+  slug: string;
+  callbackUrl: string;
 }
 
 export interface GitHubConfig {
@@ -55,11 +63,38 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     };
   }
 
+  const appValues = [
+    env.GITHUB_APP_CLIENT_ID,
+    env.GITHUB_APP_CLIENT_SECRET,
+    env.GITHUB_APP_SLUG,
+    env.GITHUB_APP_CALLBACK_URL
+  ].map((value) => value?.trim()).filter(Boolean);
+  let githubApp: GitHubAppConfig | undefined;
+  if (appValues.length > 0) {
+    const clientId = env.GITHUB_APP_CLIENT_ID?.trim();
+    const clientSecret = env.GITHUB_APP_CLIENT_SECRET?.trim();
+    const slug = env.GITHUB_APP_SLUG?.trim();
+    const callbackUrl = env.GITHUB_APP_CALLBACK_URL?.trim();
+    if (!clientId || !clientSecret || !slug || !callbackUrl) {
+      throw new ConfigurationError(
+        "GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET, GITHUB_APP_SLUG, and GITHUB_APP_CALLBACK_URL are required together"
+      );
+    }
+    try {
+      const parsed = new URL(callbackUrl);
+      if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") throw new Error();
+    } catch {
+      throw new ConfigurationError("GITHUB_APP_CALLBACK_URL must be an HTTPS URL");
+    }
+    githubApp = { clientId, clientSecret, slug, callbackUrl };
+  }
+
   return {
     discordToken,
     discordClientId,
     port,
     authorizedUserId: env.AUTHORIZED_USER_ID?.trim() || undefined,
-    github
+    github,
+    githubApp
   };
 }

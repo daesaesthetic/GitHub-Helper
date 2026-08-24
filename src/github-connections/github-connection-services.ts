@@ -94,4 +94,12 @@ export class AuthorizationStateService {
     if (!state) throw new GitHubAuthorizationStateError("Authorization state is invalid, expired, already used, or owned by another user");
     return state;
   }
+  async consumeByNonce(nonce: string) {
+    const state = await this.store.find(nonce);
+    if (!state) throw new GitHubAuthorizationStateError("Authorization state is invalid");
+    const consumed = await this.store.consume(nonce, state.discordAccountId, new Date());
+    if (!consumed) throw new GitHubAuthorizationStateError("Authorization state is invalid, expired, or already used");
+    return consumed;
+  }
+  getAccount(id: string) { return this.accounts.findById(id); }
 }
