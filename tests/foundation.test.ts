@@ -47,11 +47,181 @@ import {
   MilestoneService
 } from "../src/milestones/milestone-service.js";
 import { handleMilestoneCommand } from "../src/discord/milestone-command.js";
+import {
+  createGitHubConnection,
+  createGitHubIdentity,
+  createProjectGitHubRepository,
+  GitHubAuthorizationStateError,
+  GitHubConnectionAccessDeniedError,
+  createAuthorizationState
+} from "../src/github-connections/github-connection.js";
+import {
+  InMemoryDiscordAccountStore,
+  InMemoryGitHubAuthorizationStateStore,
+  InMemoryGitHubConnectionStore,
+  InMemoryGitHubIdentityStore,
+  InMemoryProjectGitHubRepositoryStore
+} from "../src/github-connections/github-connection-store.js";
+import {
+  AuthorizationStateService,
+  DiscordAccountService,
+  GitHubConnectionService,
+  GitHubIdentityService,
+  GitHubRepositoryAssociationService
+} from "../src/github-connections/github-connection-services.js";
+import { GitHubCredentialResolver } from "../src/github-connections/github-credential-resolver.js";
 
 const ownerId = "owner-123";
 const projectService = new ProjectService(
   new InMemoryProjectRepository(createSeedProject(ownerId))
 );
+
+test("durable Discord accounts and GitHub identities remain stable by external numeric IDs", async () => {
+  const accounts = new DiscordAccountService(new InMemoryDiscordAccountStore());
+  const first = await accounts.ensure(ownerId);
+  const second = await accounts.ensure(ownerId);
+  assert.equal(first.id, second.id);
+
+  const identities = new GitHubIdentityService(new InMemoryGitHubIdentityStore());
+  const identity = await identities.upsert({ githubUserId: 42, login: "old-login" });
+  const updated = await identities.upsert({ githubUserId: 42, login: "new-login" });
+  assert.equal(identity.id, updated.id);
+  assert.equal(updated.login, "new-login");
+  assert.equal((await identities.findByGitHubUserId(42))?.login, "new-login");
+});
+
+test("connections keep GitHub identity and installation identity distinct and isolated", async () => {
+  const accounts = new DiscordAccountService(new InMemoryDiscordAccountStore());
+  const identities = new GitHubIdentityService(new InMemoryGitHubIdentityStore());
+  const store = new InMemoryGitHubConnectionStore();
+  const service = new GitHubConnectionService(store, accounts, identities);
+  const connection = await service.connect({
+    id: "connection-1",
+    discordUserId: ownerId,
+    githubUserId: 42,
+    login: "octocat",
+    installationId: 1001,
+    githubAccountId: 99,
+    githubAccountLogin: "octo-org",
+    githubAccountType: "Organization",
+    permissionState: "read_only"
+  });
+  assert.equal(connection.githubIdentityId, "github-identity:42");
+  assert.equal(connection.installationId, 1001);
+  await assert.rejects(
+    () => service.getOwned(connection.id, { userId: "other-user" }),
+    GitHubConnectionAccessDeniedError
+  );
+  const revoked = await service.setStatus(connection.id, "revoked", { userId: ownerId });
+  assert.equal(revoked.status, "revoked");
+  assert.equal((await store.findByInstallationId(1001))?.status, "revoked");
+});
+
+test("project repository associations are owner-authorized and use numeric repository IDs", async () => {
+  const accounts = new DiscordAccountService(new InMemoryDiscordAccountStore());
+  const identities = new GitHubIdentityService(new InMemoryGitHubIdentityStore());
+  const connections = new InMemoryGitHubConnectionStore();
+  const connectionService = new GitHubConnectionService(connections, accounts, identities);
+  const connection = await connectionService.connect({
+    id: "connection-association",
+    discordUserId: ownerId,
+    githubUserId: 7,
+    login: "octocat",
+    permissionState: "read_only"
+  });
+  const associations = new InMemoryProjectGitHubRepositoryStore();
+  const service = new GitHubRepositoryAssociationService(
+    associations,
+    connections,
+    accounts,
+    projectService
+  );
+  const association = await service.associate({
+    id: "association-1",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    connectionId: connection.id,
+    repositoryId: 12345,
+    owner: "octocat",
+    repository: "hello-world",
+    repositoryUrl: "https://github.com/octocat/hello-world"
+  }, { userId: ownerId });
+  assert.equal(association.repositoryId, 12345);
+  assert.equal((await service.getAuthorized(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).association.id, "association-1");
+  await assert.rejects(
+    () => service.getAuthorized(DEVELOPMENT_PROJECT_ID, { userId: "other-user" }),
+    ProjectAccessDeniedError
+  );
+});
+
+test("authorization state is cryptographically random, expires, binds users, and is single-use", async () => {
+  const accounts = new DiscordAccountService(new InMemoryDiscordAccountStore());
+  const service = new AuthorizationStateService(
+    new InMemoryGitHubAuthorizationStateStore(),
+    accounts
+  );
+  const state = await service.create({
+    discordUserId: ownerId,
+    operation: "connect",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    ttlMs: 60_000
+  });
+  assert.ok(state.stateNonce.length >= 32);
+  const consumed = await service.consume(state.stateNonce, { userId: ownerId });
+  assert.equal(consumed.projectId, DEVELOPMENT_PROJECT_ID);
+  await assert.rejects(
+    () => service.consume(state.stateNonce, { userId: ownerId }),
+    GitHubAuthorizationStateError
+  );
+
+  const expired = createAuthorizationState({
+    discordAccountId: (await accounts.ensure("expired-user")).id,
+    operation: "connect",
+    now: new Date("2026-01-01T00:00:00Z"),
+    ttlMs: 1
+  });
+  const expiredStore = new InMemoryGitHubAuthorizationStateStore();
+  await expiredStore.create(expired);
+  await assert.rejects(
+    () => new AuthorizationStateService(expiredStore, accounts).consume(expired.stateNonce, { userId: "expired-user" }),
+    GitHubAuthorizationStateError
+  );
+});
+
+test("credential resolution prefers an owned connection and falls back to development token", async () => {
+  const accounts = new InMemoryDiscordAccountStore();
+  const connections = new InMemoryGitHubConnectionStore();
+  const associations = new InMemoryProjectGitHubRepositoryStore();
+  const identities = new GitHubIdentityService(new InMemoryGitHubIdentityStore());
+  const accountService = new DiscordAccountService(accounts);
+  const connectionService = new GitHubConnectionService(connections, accountService, identities);
+  const connection = await connectionService.connect({
+    id: "resolver-connection",
+    discordUserId: ownerId,
+    githubUserId: 55,
+    login: "owner",
+    permissionState: "read_only"
+  });
+  await associations.upsert(createProjectGitHubRepository({
+    id: "resolver-association",
+    projectId: DEVELOPMENT_PROJECT_ID,
+    connectionId: connection.id,
+    repositoryId: 999,
+    owner: "owner",
+    repository: "repo",
+    repositoryUrl: "https://github.com/owner/repo"
+  }));
+  const resolver = new GitHubCredentialResolver(
+    projectService,
+    associations,
+    connections,
+    accounts,
+    "development-token"
+  );
+  assert.equal((await resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).source, "user_owned_connection");
+  await connectionService.setStatus(connection.id, "revoked", { userId: ownerId });
+  assert.equal((await resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: ownerId })).source, "development_token");
+  assert.equal((await resolver.resolve(DEVELOPMENT_PROJECT_ID, { userId: "other-user" })).source, "unavailable");
+});
 
 test("extracts Discord user, guild, and channel identity", () => {
   const identity = extractIdentity({
